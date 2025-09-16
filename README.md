@@ -1,40 +1,39 @@
-# Open Dashboard - DeFi Protocol Analytics
+# Stablecoin Exposure Limits Dashboard
 
  ![React](https://img.shields.io/badge/React-19.1.1-61DAFB) ![Vite](https://img.shields.io/badge/Vite-7.0.6-646CFF) ![Docker](https://img.shields.io/badge/Docker-28.2.2-2496ED) ![Docker Compose](https://img.shields.io/badge/Docker%20Compose-2.36.2-2496ED)
 
-**Open Dashboard** is a fully **open source** DeFi analytics platform that aggregates real-time data from multiple blockchain data sources to provide comprehensive protocol metrics. Teams can easily fork, customize, and deploy their own version with their preferred protocols and metrics.
+**Stablecoin Exposure Limits Dashboard** is a specialized risk monitoring platform for Inverse Finance that tracks stablecoin exposure metrics across supply, liquidity, lending markets, and safety buffers. This dashboard provides real-time insights into stablecoin risk parameters to support informed decision-making for protocol risk management.
 
-## 🌟 Why Open Source?
+## 🎯 Key Features
 
-This project is designed to be **completely customizable** and **community-driven**:
+This dashboard provides comprehensive stablecoin risk monitoring capabilities:
 
-- ✅ **Fork-friendly**: Clone and customize for your specific protocols
-- ✅ **Protocol agnostic**: Add any ERC-20 protocol with governance tokens
-- ✅ **Data source flexible**: Integrate with your preferred APIs
-- ✅ **UI customizable**: Modify layouts, colors, and metrics
-- ✅ **Self-hostable**: Deploy on your own infrastructure
-- ✅ **No vendor lock-in**: Full control over your analytics stack
+- 📊 **Supply Metrics**: Total supply, bridge-secured supply, mainnet supply tracking
+- 💧 **Liquidity Monitoring**: DEX liquidity across Curve, Balancer, Uniswap, and Sushiswap
+- 🏦 **Lending Market Analysis**: Collateral usage in Aave, Morpho, Euler, and Fluid
+- 🛡️ **Safety Buffer Assessment**: Insurance funds, collateralization ratios, and safety factors
+- 📈 **Real-time Data**: Live metrics from multiple blockchain and DeFi data sources
+- 📱 **Responsive Design**: Optimized for desktop and mobile viewing
 
 ## 📁 Project Structure
 
 ```
-open-dashboard/
+stablecoin-exposure-dashboard/
 ├── src/
 │   ├── config/
-│   │   └── protocols.js          # 🔧 MAIN CUSTOMIZATION FILE
+│   │   └── stablecoins.js        # 🔧 MAIN STABLECOIN CONFIGURATION
 │   ├── components/
-│   │   ├── DeFiDashboard.jsx     # 🎛️ Main dashboard component
-│   │   ├── Header.jsx            # Navigation header
+│   │   ├── StablecoinDashboard.jsx # 🎛️ Main dashboard component
+│   │   ├── Header.jsx            # Navigation header with Inverse Finance branding
 │   │   └── Footer.jsx            # Footer component
 │   ├── hooks/                    # Data fetching hooks
-│   │   ├── useCoinGecko.js       # CoinGecko API integration
-│   │   ├── useDefiLlama.js       # DeFiLlama API integration
-│   │   ├── useUniswap.js         # Uniswap subgraph data
-│   │   ├── useCurve.js           # Curve protocol data
-│   │   ├── useBalancer.js        # Balancer protocol data
-│   │   ├── useSushiSwap.js       # SushiSwap protocol data
-│   │   ├── useFraxswap.js        # Fraxswap protocol data
-│   │   └── useEthereum.js        # Ethereum on-chain data
+│   │   ├── useStablecoinMetrics.js # Stablecoin-specific data hooks
+│   │   ├── useCoinGecko.js       # Market data integration
+│   │   ├── useUniswap.js         # DEX liquidity data
+│   │   ├── useCurve.js           # Curve pool data
+│   │   ├── useBalancer.js        # Balancer pool data
+│   │   ├── useSushiSwap.js       # SushiSwap pool data
+│   │   └── useEthereum.js        # On-chain supply data
 │   ├── services/
 │   │   └── cache-client.js       # Caching and API management
 │   └── assets/                   # Static assets
@@ -44,42 +43,39 @@ open-dashboard/
 ├── .github/                      # GitHub workflows
 ├── docker-compose.yml            # Docker setup
 ├── Dockerfile                    # Container configuration
-├── deploy.sh                     # Deployment script
 └── package.json                  # Dependencies and scripts
 ```
 
-## 🔧 Core Customization Files
+## 🔧 Core Configuration Files
 
-### 1. `src/config/protocols.js` - Protocol Configuration
+### 1. `src/config/stablecoins.js` - Stablecoin Configuration
 
-This is the **main file you'll customize** to add your protocols:
+This is the **main configuration file** for tracked stablecoins:
 
 ```javascript
-export const protocols = [
+export const stablecoins = [
   {
-    ticker: "YOUR_TOKEN",              // Token symbol (e.g., "UNI", "AAVE")
-    name: "Your Protocol Name",        // Full protocol name
-    govContractAddress: "0x...",       // Governance token contract address
-    coingeckoId: "your-token-id",      // CoinGecko API ID
-    defiLlamaSlug: "your-protocol",    // DeFiLlama protocol slug
-    blockchain: "ethereum",            // Blockchain network
-    mainnetLaunch: "2024-01-01",      // Launch date (YYYY-MM-DD)
-    openStatus: "current",             // "current" or "proposed"
-    nextEmissions: 1000000,            // Upcoming token emissions
-    emissionsCatalyst: "Description"   // Emissions description
+    name: "USDS + DAI",               // Display name
+    symbol: "USDS_DAI",               // Unique identifier
+    coingeckoIds: ["dai", "usds"],    // CoinGecko API IDs
+    contractAddresses: {              // Contract addresses
+      dai: "0x6b175474e89094c44da98b954eedeac495271d0f",
+      usds: "0xdC035D45d973E3EC169d2276DDab16f1e407384F"
+    },
+    category: "maker_ecosystem"       // Categorization
   },
-  // Add more protocols here...
+  // Add more stablecoins here...
 ];
 ```
 
-### 2. `src/components/DeFiDashboard.jsx` - Dashboard Logic
+### 2. `src/components/StablecoinDashboard.jsx` - Dashboard Logic
 
-Customize the dashboard display, metrics, and calculations:
+The main dashboard component that displays the stablecoin metrics table:
 
-- **Add new columns**: Extend the table with custom metrics
-- **Modify calculations**: Change ratio formulas and thresholds
-- **Customize styling**: Update colors, layouts, and responsive design
-- **Add data sources**: Integrate new APIs or on-chain data
+- **Metrics Display**: Shows supply, liquidity, lending, and safety metrics
+- **Real-time Updates**: Fetches live data from multiple sources
+- **Responsive Design**: Optimized table layout for all screen sizes
+- **Data Visualization**: Color-coded sections for different metric categories
 
 ## 🚀 Quick Start
 
@@ -105,41 +101,39 @@ cp .env.example .env
 
 The dashboard will be available at `http://localhost:3000`
 
-### Adding Your First Protocol
+### Monitored Stablecoins
 
-1. **Open** `src/config/protocols.js`
-2. **Add your protocol** to the `protocols` array:
+The dashboard currently tracks the following stablecoins:
 
-```javascript
-{
-  ticker: "MYTOKEN",
-  name: "My DeFi Protocol",
-  govContractAddress: "0x1234567890123456789012345678901234567890",
-  coingeckoId: "my-token",
-  defiLlamaSlug: "my-protocol",
-  blockchain: "ethereum",
-  mainnetLaunch: "2024-01-01",
-  openStatus: "current",
-  nextEmissions: 500000,
-  emissionsCatalyst: "Liquidity mining rewards"
-}
-```
+1. **USDS + DAI** - Maker ecosystem stablecoins
+2. **USDe** - Ethena synthetic dollar
+3. **USR** - Real world asset-backed stablecoin
+4. **deUSD** - Decentralized USD
+5. **crvUSD** - Curve ecosystem stablecoin
+6. **USDO** - Omnichain stablecoin
+7. **fxUSD** - f(x) Protocol stablecoin
+8. **reUSD** - Reserve Protocol stablecoin
 
-3. **Save** and the dashboard will automatically update!
+Each stablecoin is monitored across four key metric categories with real-time data updates.
 
 ## 📊 Data Sources
 
-The dashboard integrates with multiple APIs to provide comprehensive metrics:
+The dashboard integrates with multiple APIs to provide comprehensive stablecoin metrics:
 
-| Data Source | Usage | Configuration |
-|------------|-------|---------------|
-| **CoinGecko API** | Market data, prices, volumes | `coingeckoId` in protocols.js |
-| **DeFiLlama API** | Protocol TVL data | `defiLlamaSlug` in protocols.js |
-| **Uniswap Subgraph** | DEX liquidity and volume | `govContractAddress` for token lookups |
-| **Curve API** | Curve pool data | Auto-detected by token address |
-| **Balancer Subgraph** | Balancer pool metrics | Auto-detected by token address |
-| **SushiSwap Subgraph** | Sushi pool data | Auto-detected by token address |
-| **Fraxswap API** | Frax DEX data | Auto-detected by token address |
+| Data Source | Usage | Metrics Provided |
+|------------|-------|------------------|
+| **Ethereum RPC** | On-chain data | Total supply, mainnet supply, token balances |
+| **CoinGecko API** | Market data | Stablecoin prices and basic market information |
+| **Curve API** | DEX liquidity | Curve pool TVL and trading volumes |
+| **Uniswap Subgraph** | DEX liquidity | Uniswap pool TVL and liquidity metrics |
+| **Balancer Subgraph** | DEX liquidity | Balancer pool TVL and trading data |
+| **SushiSwap Subgraph** | DEX liquidity | SushiSwap pool TVL and volume data |
+| **Aave Protocol** | Lending markets | Collateral usage and lending metrics |
+| **Morpho Protocol** | Lending markets | Advanced lending market data |
+| **Euler Finance** | Lending markets | Euler lending protocol metrics |
+| **Fluid Protocol** | Lending markets | Fluid lending market usage |
+| **Bridge APIs** | Cross-chain data | Bridge-secured supply tracking |
+| **Protocol APIs** | Safety metrics | Insurance funds, CR, staking data |
 
 ## 🎨 Customization Examples
 

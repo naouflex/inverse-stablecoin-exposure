@@ -1,5 +1,5 @@
 import { ChakraProvider, extendTheme, ColorModeScript } from '@chakra-ui/react'
-import DeFiDashboard from './components/DeFiDashboard'
+import StablecoinDashboard from './components/StablecoinDashboard'
 import Layout from './components/Layout'
 
 // Custom theme
@@ -29,7 +29,7 @@ function App() {
       <ColorModeScript initialColorMode={theme.config.initialColorMode} />
       <ChakraProvider theme={theme}>
         <Layout>
-          <DeFiDashboard />
+          <StablecoinDashboard />
         </Layout>
       </ChakraProvider>
     </>

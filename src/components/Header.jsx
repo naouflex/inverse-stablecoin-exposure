@@ -50,63 +50,75 @@ function DataSourcesModal() {
   const dataSources = [
     {
       name: "CoinGecko API",
-      description: "Market data, trading volume, token prices, exchange listings",
+      description: "Stablecoin market data, prices, and trading volumes",
       url: "https://docs.coingecko.com/reference/introduction",
       category: "Market Data"
     },
     {
-      name: "DeFiLlama API", 
-      description: "Protocol TVL (Total Value Locked), DeFi analytics",
-      url: "https://defillama.com/docs/api",
-      category: "DeFi Analytics"
-    },
-    {
-      name: "Uniswap V3 Subgraph",
-      description: "Uniswap V3 pools, trading volumes, and liquidity data",
-      url: "https://thegraph.com/explorer/subgraphs/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
-      category: "DEX Data"
-    },
-    {
-      name: "Uniswap V2 Subgraph",
-      description: "Uniswap V2 pairs, trading volumes, and liquidity data",
-      url: "https://thegraph.com/explorer/subgraphs/EYCKATKGBKLWvSfwvBjzfCBmGwYNdVkduYXVivCsLRFu",
-      category: "DEX Data"
-    },
-    {
-      name: "Balancer V2 Subgraph",
-      description: "Balancer V2 pools, trading volumes, and liquidity data",
-      url: "https://thegraph.com/explorer/subgraphs/C4ayEZP2yTXRAB8vSaTrgN4m9anTe9Mdm2ViyiAuV9TV",
-      category: "DEX Data"
-    },
-    {
-      name: "SushiSwap Subgraph",
-      description: "SushiSwap pools and trading data",
-      url: "https://thegraph.com/explorer/subgraphs/5nnoU1nUFeWqtXgbpC54L9PWdpgo7Y9HYinR3uTMsfzs",
-      category: "DEX Data"
-    },
-    {
-      name: "SushiSwap V2 Subgraph",
-      description: "SushiSwap V2 pairs and trading volumes",
-      url: "https://thegraph.com/explorer/subgraphs/GyZ9MgVQkTWuXGMSd3LXESvpevE8S8aD3uktJh7kbVmc",
-      category: "DEX Data"
+      name: "Ethereum RPC",
+      description: "On-chain stablecoin supplies, balances and contract data",
+      url: "https://ethereum.org/en/developers/docs/apis/json-rpc/",
+      category: "Blockchain Data"
     },
     {
       name: "Curve API",
-      description: "Curve Finance API for pool data and trading volumes",
+      description: "Curve Finance pools and stablecoin liquidity data",
       url: "https://curve.fi/api",
-      category: "DEX Data"
+      category: "DEX Liquidity"
     },
     {
-      name: "Fraxswap Subgraph",
-      description: "Fraxswap DEX data for FRAX protocol",
-      url: "https://thegraph.com/explorer/subgraphs/3AMhp8Ck6ZScMibA8jfLhWFA9fKH6Zi8fMPHtb74Vsxv",
-      category: "DEX Data"
+      name: "Uniswap Subgraph",
+      description: "Uniswap pools and stablecoin liquidity metrics",
+      url: "https://thegraph.com/explorer/subgraphs/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV",
+      category: "DEX Liquidity"
     },
     {
-      name: "Ethereum RPC",
-      description: "On-chain token balances and contract interactions",
-      url: "https://ethereum.org/en/developers/docs/apis/json-rpc/",
-      category: "Blockchain Data"
+      name: "Balancer Subgraph",
+      description: "Balancer pools and stablecoin liquidity data",
+      url: "https://thegraph.com/explorer/subgraphs/C4ayEZP2yTXRAB8vSaTrgN4m9anTe9Mdm2ViyiAuV9TV",
+      category: "DEX Liquidity"
+    },
+    {
+      name: "SushiSwap Subgraph",
+      description: "SushiSwap pools and stablecoin trading data",
+      url: "https://thegraph.com/explorer/subgraphs/5nnoU1nUFeWqtXgbpC54L9PWdpgo7Y9HYinR3uTMsfzs",
+      category: "DEX Liquidity"
+    },
+    {
+      name: "Aave Protocol",
+      description: "Stablecoin collateral usage and lending data",
+      url: "https://docs.aave.com/developers/",
+      category: "Lending Markets"
+    },
+    {
+      name: "Morpho Protocol",
+      description: "Morpho lending markets and collateral metrics",
+      url: "https://docs.morpho.org/",
+      category: "Lending Markets"
+    },
+    {
+      name: "Euler Finance",
+      description: "Euler lending protocol collateral data",
+      url: "https://docs.euler.finance/",
+      category: "Lending Markets"
+    },
+    {
+      name: "Fluid Protocol",
+      description: "Fluid lending markets and stablecoin usage",
+      url: "https://docs.fluid.instadapp.io/",
+      category: "Lending Markets"
+    },
+    {
+      name: "Bridge APIs",
+      description: "Cross-chain stablecoin supply and bridge collateral data",
+      url: "#",
+      category: "Bridge Data"
+    },
+    {
+      name: "Protocol APIs",
+      description: "Insurance funds, collateralization ratios, and safety metrics",
+      url: "#",
+      category: "Safety Metrics"
     }
   ];
 
@@ -132,7 +144,7 @@ function DataSourcesModal() {
           <ModalCloseButton />
           <ModalBody>
             <Text fontSize="sm" color="gray.500" mb={4}>
-              This dashboard aggregates data from multiple reliable sources to provide comprehensive DeFi protocol metrics.
+              This dashboard aggregates data from multiple reliable sources to provide comprehensive stablecoin exposure and risk metrics for Inverse Finance.
             </Text>
             <VStack spacing={4} align="stretch">
               {dataSources.map((source, index) => (
@@ -226,17 +238,17 @@ export default function Header() {
                 textAlign="center"
                 lineHeight="1.2"
               >
-                {/* Mobile: Just $OPEN */}
+                {/* Mobile: Short version */}
                 <Text as="span" display={{ base: "inline", sm: "none" }}>
-                  $OPEN
+                  Stablecoin Limits
                 </Text>
-                {/* Small: $OPEN Index */}
+                {/* Small: Medium version */}
                 <Text as="span" display={{ base: "none", sm: "inline", md: "none" }}>
-                  $OPEN Index
+                  Stablecoin Exposure Limits
                 </Text>
                 {/* Medium and up: Full title */}
                 <Text as="span" display={{ base: "none", md: "inline" }}>
-                  Metrics: $OPEN Index
+                  Stablecoin Exposure Limits Dashboard
                 </Text>
               </Heading>
               
@@ -250,11 +262,11 @@ export default function Header() {
               >
                 {/* Mobile: Short version */}
                 <Text as="span" display={{ base: "inline", sm: "none" }}>
-                  (Current & Proposed)
+                  Inverse Finance Risk Monitoring
                 </Text>
                 {/* Small and up: Full version */}
                 <Text as="span" display={{ base: "none", sm: "inline" }}>
-                  (Constituents & Proposed)
+                  Inverse Finance Risk Monitoring & Analysis
                 </Text>
               </Text>
             </VStack>

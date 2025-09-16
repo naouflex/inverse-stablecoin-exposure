@@ -21,6 +21,7 @@ import { DefiLlamaFetcher } from './services/defillama-fetcher.js';
 import { TheGraphFetcher } from './services/thegraph-fetcher.js';
 import { EthereumFetcher } from './services/ethereum-fetcher.js';
 import { CurveFetcher } from './services/curve-fetcher.js';
+import { StablecoinFetcher } from './services/stablecoin-fetcher.js';
 
 // Initialize logger
 const logger = createLogger({
@@ -128,6 +129,7 @@ const defiLlamaFetcher = new DefiLlamaFetcher();
 const theGraphFetcher = new TheGraphFetcher();
 const ethereumFetcher = new EthereumFetcher();
 const curveFetcher = new CurveFetcher();
+let stablecoinFetcher; // Will be initialized after Redis connection
 
 // Cache utilities - Redis only for simplicity
 class CacheManager {
@@ -1432,6 +1434,181 @@ app.get('/api/ethereum/:method', async (req, res) => {
   }
 });
 
+// ================= STABLECOIN API ENDPOINTS =================
+
+// Aave collateral usage
+app.get('/api/aave/collateral/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `aave-collateral-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getAaveCollateralUsage(tokenAddress);
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Aave collateral error:', error);
+    res.status(500).json({ error: 'Failed to fetch Aave collateral data' });
+  }
+});
+
+// Morpho collateral usage
+app.get('/api/morpho/collateral/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `morpho-collateral-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getMorphoCollateralUsage(tokenAddress);
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Morpho collateral error:', error);
+    res.status(500).json({ error: 'Failed to fetch Morpho collateral data' });
+  }
+});
+
+// Euler collateral usage
+app.get('/api/euler/collateral/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `euler-collateral-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getEulerCollateralUsage(tokenAddress);
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Euler collateral error:', error);
+    res.status(500).json({ error: 'Failed to fetch Euler collateral data' });
+  }
+});
+
+// Fluid collateral usage
+app.get('/api/fluid/collateral/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `fluid-collateral-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getFluidCollateralUsage(tokenAddress);
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Fluid collateral error:', error);
+    res.status(500).json({ error: 'Failed to fetch Fluid collateral data' });
+  }
+});
+
+// Bridge secured supply
+app.get('/api/stablecoin/bridge-supply/:stablecoinSymbol', async (req, res) => {
+  try {
+    const { stablecoinSymbol } = req.params;
+    const cacheKey = `bridge-supply-${stablecoinSymbol}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getBridgeSecuredSupply(stablecoinSymbol);
+      await cacheManager.set(cacheKey, data, 1800); // 30 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Bridge supply error:', error);
+    res.status(500).json({ error: 'Failed to fetch bridge supply data' });
+  }
+});
+
+// Insurance fund data
+app.get('/api/stablecoin/insurance-fund/:stablecoinSymbol', async (req, res) => {
+  try {
+    const { stablecoinSymbol } = req.params;
+    const cacheKey = `insurance-fund-${stablecoinSymbol}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getInsuranceFund(stablecoinSymbol);
+      await cacheManager.set(cacheKey, data, 3600); // 1 hour
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Insurance fund error:', error);
+    res.status(500).json({ error: 'Failed to fetch insurance fund data' });
+  }
+});
+
+// Collateralization ratio
+app.get('/api/stablecoin/collateralization-ratio/:stablecoinSymbol', async (req, res) => {
+  try {
+    const { stablecoinSymbol } = req.params;
+    const cacheKey = `collateralization-ratio-${stablecoinSymbol}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getCollateralizationRatio(stablecoinSymbol);
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Collateralization ratio error:', error);
+    res.status(500).json({ error: 'Failed to fetch collateralization ratio data' });
+  }
+});
+
+// Staking data
+app.get('/api/stablecoin/staking/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const { stakingContracts } = req.query;
+    const contractsArray = stakingContracts ? stakingContracts.split(',') : [];
+    const cacheKey = `staking-data-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await stablecoinFetcher.getStakingData(tokenAddress, contractsArray);
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Staking data error:', error);
+    res.status(500).json({ error: 'Failed to fetch staking data' });
+  }
+});
+
+// Total supply endpoint (reuse existing Ethereum endpoint but with alias)
+app.get('/api/ethereum/token-total-supply/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `ethereum:total-supply:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await ethereumFetcher.getTotalSupply(tokenAddress);
+      await cacheManager.set(cacheKey, data, 1800); // 30 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Token total supply error:', error);
+    res.status(500).json({ error: 'Failed to fetch token total supply' });
+  }
+});
+
 // Simplified data refresh function aligned with dashboard protocols
 async function refreshAllData() {
   logger.info('Starting scheduled data refresh...');
@@ -1505,6 +1682,9 @@ async function startServer() {
     logger.info('Redis connection successful');
     
     cacheManager = new CacheManager(redis);
+    
+    // Initialize stablecoin fetcher with Redis connection
+    stablecoinFetcher = new StablecoinFetcher(logger, redis);
     
     // Schedule data refresh every hour as requested
     cron.schedule('0 * * * *', refreshAllData);

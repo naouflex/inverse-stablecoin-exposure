@@ -123,3 +123,19 @@ export {
   useEthereumUtils
 } from './useEthereum.js';
 
+// Stablecoin metrics hooks
+export {
+  useStablecoinTotalSupply,
+  useStablecoinMainnetSupply,
+  useStablecoinBridgeSupply,
+  useAaveCollateralUsage,
+  useMorphoCollateralUsage,
+  useEulerCollateralUsage,
+  useFluidCollateralUsage,
+  useTotalLendingMarketUsage,
+  useStablecoinInsuranceFund,
+  useStablecoinCollateralizationRatio,
+  useStablecoinStakedSupply,
+  useStablecoinCompleteMetrics
+} from './useStablecoinMetrics.js';
+
