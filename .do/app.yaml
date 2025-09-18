@@ -1,80 +1,82 @@
-name: open-dashboard
+name: risk-dashboard
 services:
-- name: web
-  source_dir: /
-  github:
-    repo: naouflex/open-index-metrics
-    branch: main
-  build_command: npm ci && npm run build
-  environment_slug: node-js
-  instance_count: 1
-  instance_size_slug: basic-xxs
-  routes:
-  - path: /
-  http_port: 8080
-  run_command: |
-    cat > serve.js << 'EOF'
-    const express = require('express');
-    const path = require('path');
-    const app = express();
-    const port = process.env.PORT || 8080;
+  # Frontend - React app with Nginx
+  - name: frontend
+    source_dir: /
+    dockerfile_path: Dockerfile
+    github:
+      repo: your-username/risk-dashboard
+      branch: main
+    http_port: 80
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    build_command: npm run build
+    run_command: nginx -g "daemon off;"
+    envs:
+      - key: NODE_ENV
+        value: production
 
-    // Serve static files from dist directory
-    app.use(express.static(path.join(__dirname, 'dist')));
-
-    // Handle React Router
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    });
-
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-    });
-    EOF
-    node serve.js
-
-- name: cache-service
-  source_dir: /cache-service
-  github:
-    repo: naouflex/open-index-metrics
-    branch: main
-  build_command: npm ci
-  environment_slug: node-js
-  instance_count: 1
-  instance_size_slug: basic-xxs
-  routes:
-  - path: /api
-  http_port: 4000
-  run_command: npm start
-  envs:
-  - key: NODE_ENV
-    value: production
-  - key: REDIS_URL
-    value: ${redis.DATABASE_URL}
-  - key: COINGECKO_API_KEY
-    value: ${COINGECKO_API_KEY}
-  - key: THE_GRAPH_API_KEY
-    value: ${THE_GRAPH_API_KEY}
-  - key: ETH_RPC_URL
-    value: ${ETH_RPC_URL}
-  - key: ETH_RPC_URL_FALLBACK
-    value: ${ETH_RPC_URL_FALLBACK}
-  - key: UNISWAP_V3_SUBGRAPH_ID
-    value: ${UNISWAP_V3_SUBGRAPH_ID}
-  - key: UNISWAP_V2_SUBGRAPH_ID
-    value: ${UNISWAP_V2_SUBGRAPH_ID}
-  - key: SUSHI_SUBGRAPH_ID
-    value: ${SUSHI_SUBGRAPH_ID}
-  - key: SUSHI_V2_SUBGRAPH_ID
-    value: ${SUSHI_V2_SUBGRAPH_ID}
-  - key: CURVE_SUBGRAPH_ID
-    value: ${CURVE_SUBGRAPH_ID}
-  - key: FRAXSWAP_SUBGRAPH_ID
-    value: ${FRAXSWAP_SUBGRAPH_ID}
-  - key: BALANCER_V2_SUBGRAPH_ID
-    value: ${BALANCER_V2_SUBGRAPH_ID}
+  # Cache Service - Node.js API backend
+  - name: cache-service
+    source_dir: /cache-service
+    dockerfile_path: cache-service/Dockerfile
+    github:
+      repo: your-username/risk-dashboard
+      branch: main
+    http_port: 4000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /api
+    build_command: npm install
+    run_command: npm start
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: REDIS_URL
+        value: ${redis.DATABASE_URL}
+      # API Keys - Add these in DO dashboard
+      - key: COINGECKO_API_KEY
+        value: ${COINGECKO_API_KEY}
+      - key: THE_GRAPH_API_KEY
+        value: ${THE_GRAPH_API_KEY}
+      - key: ETH_RPC_URL
+        value: ${ETH_RPC_URL}
+      - key: ETH_RPC_URL_FALLBACK
+        value: ${ETH_RPC_URL_FALLBACK}
+      # Subgraph IDs
+      - key: UNISWAP_V3_SUBGRAPH_ID
+        value: ${UNISWAP_V3_SUBGRAPH_ID}
+      - key: UNISWAP_V2_SUBGRAPH_ID
+        value: ${UNISWAP_V2_SUBGRAPH_ID}
+      - key: SUSHI_SUBGRAPH_ID
+        value: ${SUSHI_SUBGRAPH_ID}
+      - key: SUSHI_V2_SUBGRAPH_ID
+        value: ${SUSHI_V2_SUBGRAPH_ID}
+      - key: CURVE_SUBGRAPH_ID
+        value: ${CURVE_SUBGRAPH_ID}
+      - key: FRAXSWAP_SUBGRAPH_ID
+        value: ${FRAXSWAP_SUBGRAPH_ID}
+      - key: BALANCER_V2_SUBGRAPH_ID
+        value: ${BALANCER_V2_SUBGRAPH_ID}
+      - key: AAVE_V3_MAINNET
+        value: ${AAVE_V3_MAINNET}
+      - key: MORPHO_COMPOUND_MAINNET
+        value: ${MORPHO_COMPOUND_MAINNET}
+      - key: MORPHO_AAVE_V2_MAINNET
+        value: ${MORPHO_AAVE_V2_MAINNET}
+      - key: MORPHO_AAVE_V3_MAINNET
+        value: ${MORPHO_AAVE_V3_MAINNET}
+      - key: EULER_MAINNET
+        value: ${EULER_MAINNET}
 
 databases:
-- name: redis
-  engine: REDIS
-  version: "7" 
+  # Managed Redis database
+  - name: redis
+    engine: REDIS
+    version: "7"
+    size: basic
