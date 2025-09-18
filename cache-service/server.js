@@ -22,6 +22,7 @@ import { TheGraphFetcher } from './services/thegraph-fetcher.js';
 import { EthereumFetcher } from './services/ethereum-fetcher.js';
 import { CurveFetcher } from './services/curve-fetcher.js';
 import { StablecoinFetcher } from './services/stablecoin-fetcher.js';
+// Using unified TheGraphFetcher for lending protocols
 
 // Initialize logger
 const logger = createLogger({
@@ -129,6 +130,7 @@ const defiLlamaFetcher = new DefiLlamaFetcher();
 const theGraphFetcher = new TheGraphFetcher();
 const ethereumFetcher = new EthereumFetcher();
 const curveFetcher = new CurveFetcher();
+// Will use theGraphFetcher for lending protocols
 let stablecoinFetcher; // Will be initialized after Redis connection
 
 // Cache utilities - Redis only for simplicity
@@ -246,13 +248,13 @@ class CircuitBreaker {
 }
 
 // Create circuit breakers for external services
-const coinGeckoCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout to prevent 504 errors
-const defiLlamaCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout to prevent 504 errors
-const theGraphCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout to prevent 504 errors
-const ethereumCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout to prevent 504 errors
+const coinGeckoCircuitBreaker = new CircuitBreaker(3, 45000); // Longer timeout for external APIs
+const defiLlamaCircuitBreaker = new CircuitBreaker(3, 45000); // Longer timeout for external APIs
+const theGraphCircuitBreaker = new CircuitBreaker(3, 45000); // Longer timeout for GraphQL queries
+const ethereumCircuitBreaker = new CircuitBreaker(3, 30000); // Moderate timeout for RPC calls
 
 // Universal helper to safely fetch data with circuit breaker and stale fallback
-async function safeExternalFetch(cacheKey, fetchFunction, circuitBreaker = theGraphCircuitBreaker, timeoutMs = 8000, dataType = 'default') {
+async function safeExternalFetch(cacheKey, fetchFunction, circuitBreaker = theGraphCircuitBreaker, timeoutMs = 30000, dataType = 'default') {
   let data = await cacheManager.get(cacheKey);
   if (data) return data;
 
@@ -297,7 +299,9 @@ app.get('/api/health', async (req, res) => {
       theGraph: theGraphCircuitBreaker.state,
       ethereum: ethereumCircuitBreaker.state
     },
-    defiLlamaQueue: defiLlamaFetcher.getQueueStatus()
+    defiLlamaQueue: defiLlamaFetcher.getQueueStatus(),
+    theGraphQueue: theGraphFetcher.getQueueStatus(),
+    stablecoinQueue: stablecoinFetcher ? stablecoinFetcher.getQueueStatus() : null
   };
 
   try {
@@ -424,7 +428,7 @@ app.get('/api/coingecko/market-data/:coinId', async (req, res) => {
         data = await coinGeckoCircuitBreaker.call(async () => {
           const fetchPromise = coinGeckoFetcher.fetchCoinData(coinId);
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('External API timeout')), 8000)
+            setTimeout(() => reject(new Error('External API timeout')), 30000)
           );
           return Promise.race([fetchPromise, timeoutPromise]);
         });
@@ -789,6 +793,55 @@ app.get('/api/defillama/queue-status', async (req, res) => {
   }
 });
 
+// NEW: The Graph queue status monitoring endpoint
+app.get('/api/thegraph/queue-status', async (req, res) => {
+  try {
+    const queueStatus = theGraphFetcher.getQueueStatus();
+    
+    res.json({
+      service: 'thegraph',
+      ...queueStatus,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('The Graph queue status error:', error);
+    res.status(500).json({ error: 'Failed to get The Graph queue status' });
+  }
+});
+
+// NEW: Stablecoin fetcher queue status monitoring endpoint
+app.get('/api/stablecoin/queue-status', async (req, res) => {
+  try {
+    const queueStatus = stablecoinFetcher ? stablecoinFetcher.getQueueStatus() : null;
+    
+    res.json({
+      service: 'stablecoin',
+      ...(queueStatus || { message: 'Stablecoin fetcher not initialized' }),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Stablecoin queue status error:', error);
+    res.status(500).json({ error: 'Failed to get Stablecoin queue status' });
+  }
+});
+
+// NEW: Combined queue status monitoring endpoint
+app.get('/api/admin/queue-status', async (req, res) => {
+  try {
+    const allQueues = {
+      defiLlama: defiLlamaFetcher.getQueueStatus(),
+      theGraph: theGraphFetcher.getQueueStatus(),
+      stablecoin: stablecoinFetcher ? stablecoinFetcher.getQueueStatus() : null,
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(allQueues);
+  } catch (error) {
+    logger.error('Combined queue status error:', error);
+    res.status(500).json({ error: 'Failed to get queue status' });
+  }
+});
+
 // getProtocolTVLHistory -> /api/defillama/protocol-tvl-history/:protocolSlug
 app.get('/api/defillama/protocol-tvl-history/:protocolSlug', async (req, res) => {
   try {
@@ -1018,7 +1071,7 @@ app.get('/api/fraxswap/token-tvl/:tokenAddress', async (req, res) => {
         data = await theGraphCircuitBreaker.call(async () => {
           const fetchPromise = theGraphFetcher.fetchData('fraxswap', 'token_tvl', { tokenAddress });
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('External API timeout')), 8000)
+            setTimeout(() => reject(new Error('External API timeout')), 30000)
           );
           return Promise.race([fetchPromise, timeoutPromise]);
         });
@@ -1590,6 +1643,229 @@ app.get('/api/stablecoin/staking/:tokenAddress', async (req, res) => {
   }
 });
 
+// ================= LENDING PROTOCOL ENDPOINTS =================
+
+// Aave V3 reserve data
+app.get('/api/lending/aave-v3/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `aave-v3-reserve-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      const graphData = await theGraphFetcher.fetchData('aave_v3', 'lending_reserves', { tokenAddress });
+      const reserves = graphData?.data?.markets || [];
+      
+      data = {
+        protocol: 'aave_v3',
+        tokenAddress,
+        markets: reserves,
+        totalTVL: reserves.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+        totalDeposits: reserves.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0),
+        totalBorrows: reserves.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0),
+        fetched_at: new Date().toISOString()
+      };
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Aave V3 data error:', error);
+    res.status(500).json({ error: 'Failed to fetch Aave V3 data' });
+  }
+});
+
+// Morpho Compound market data
+app.get('/api/lending/morpho-compound/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `morpho-compound-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      const graphData = await theGraphFetcher.fetchData('morpho_compound', 'lending_markets', { tokenAddress });
+      const markets = graphData?.data?.markets || [];
+      
+      data = {
+        protocol: 'morpho_compound',
+        tokenAddress,
+        markets: markets,
+        totalTVL: markets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+        totalDeposits: markets.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0),
+        totalBorrows: markets.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0),
+        fetched_at: new Date().toISOString()
+      };
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Morpho Compound data error:', error);
+    res.status(500).json({ error: 'Failed to fetch Morpho Compound data' });
+  }
+});
+
+// Morpho Aave V2 market data
+app.get('/api/lending/morpho-aave-v2/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `morpho-aave-v2-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      const graphData = await theGraphFetcher.fetchData('morpho_aave_v2', 'lending_markets', { tokenAddress });
+      const marketData = graphData?.data?.markets || [];
+      data = {
+        protocol: 'morpho_aave_v2',
+        tokenAddress,
+        markets: marketData,
+        totalTVL: marketData.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+        totalDeposits: marketData.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0),
+        totalBorrows: marketData.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0),
+        fetched_at: new Date().toISOString()
+      };
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Morpho Aave V2 data error:', error);
+    res.status(500).json({ error: 'Failed to fetch Morpho Aave V2 data' });
+  }
+});
+
+// Morpho Aave V3 market data
+app.get('/api/lending/morpho-aave-v3/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `morpho-aave-v3-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      const graphData = await theGraphFetcher.fetchData('morpho_aave_v3', 'lending_markets', { tokenAddress });
+      const marketData = graphData?.data?.markets || [];
+      data = {
+        protocol: 'morpho_aave_v3',
+        tokenAddress,
+        markets: marketData,
+        totalTVL: marketData.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+        totalDeposits: marketData.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0),
+        totalBorrows: marketData.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0),
+        fetched_at: new Date().toISOString()
+      };
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Morpho Aave V3 data error:', error);
+    res.status(500).json({ error: 'Failed to fetch Morpho Aave V3 data' });
+  }
+});
+
+// Euler market data
+app.get('/api/lending/euler/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `euler-market-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      const graphData = await theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress });
+      const marketData = graphData?.data?.markets || [];
+      data = {
+        protocol: 'euler',
+        tokenAddress,
+        markets: marketData,
+        totalTVL: marketData.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+        totalSupply: marketData.reduce((sum, market) => sum + (Number(market.totalSupply) || 0), 0),
+        totalBorrows: marketData.reduce((sum, market) => sum + (Number(market.totalBorrows) || 0), 0),
+        fetched_at: new Date().toISOString()
+      };
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Euler data error:', error);
+    res.status(500).json({ error: 'Failed to fetch Euler data' });
+  }
+});
+
+// Combined lending TVL for a token
+app.get('/api/lending/total-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `total-lending-tvl-${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      // Fetch data from all lending protocols using unified approach
+      const [aaveData, morphoCompound, morphoAaveV2, morphoAaveV3, eulerData] = await Promise.all([
+        theGraphFetcher.fetchData('aave_v3', 'lending_reserves', { tokenAddress }),
+        theGraphFetcher.fetchData('morpho_compound', 'lending_markets', { tokenAddress }),
+        theGraphFetcher.fetchData('morpho_aave_v2', 'lending_markets', { tokenAddress }),
+        theGraphFetcher.fetchData('morpho_aave_v3', 'lending_markets', { tokenAddress }),
+        theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress })
+      ]);
+      
+      // Debug the actual data structure
+      console.log('Debug aaveData structure:', JSON.stringify(aaveData, null, 2));
+      console.log('Debug morphoCompound structure:', JSON.stringify(morphoCompound, null, 2));
+      
+      const aaveMarkets = aaveData?.data?.markets || [];
+      const morphoCompoundMarkets = morphoCompound?.data?.markets || [];
+      const morphoAaveV2Markets = morphoAaveV2?.data?.markets || [];
+      const morphoAaveV3Markets = morphoAaveV3?.data?.markets || [];
+      const eulerMarkets = eulerData?.data?.markets || [];
+      
+      data = {
+        tokenAddress,
+        protocols: {
+          aave_v3: {
+            totalTVL: Array.isArray(aaveMarkets) ? aaveMarkets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0) : 0,
+            totalDeposits: Array.isArray(aaveMarkets) ? aaveMarkets.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0) : 0,
+            totalBorrows: Array.isArray(aaveMarkets) ? aaveMarkets.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0) : 0,
+            markets: Array.isArray(aaveMarkets) ? aaveMarkets.length : 0
+          },
+          morpho_compound: {
+            totalTVL: morphoCompoundMarkets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+            markets: morphoCompoundMarkets.length
+          },
+          morpho_aave_v2: {
+            totalTVL: morphoAaveV2Markets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+            markets: morphoAaveV2Markets.length
+          },
+          morpho_aave_v3: {
+            totalTVL: morphoAaveV3Markets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+            markets: morphoAaveV3Markets.length
+          },
+          euler: {
+            totalTVL: eulerMarkets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
+            markets: eulerMarkets.length
+          }
+        },
+        totalLendingTVL: 0,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      // Calculate total TVL
+      data.totalLendingTVL = 
+        (data.protocols.aave_v3.totalTVL || 0) +
+        (data.protocols.morpho_compound.totalTVL || 0) +
+        (data.protocols.morpho_aave_v2.totalTVL || 0) +
+        (data.protocols.morpho_aave_v3.totalTVL || 0) +
+        (data.protocols.euler.totalTVL || 0);
+      await cacheManager.set(cacheKey, data, 900); // 15 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Total lending TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch total lending TVL' });
+  }
+});
+
 // Total supply endpoint (reuse existing Ethereum endpoint but with alias)
 app.get('/api/ethereum/token-total-supply/:tokenAddress', async (req, res) => {
   try {
@@ -1598,7 +1874,7 @@ app.get('/api/ethereum/token-total-supply/:tokenAddress', async (req, res) => {
     
     let data = await cacheManager.get(cacheKey);
     if (!data) {
-      data = await ethereumFetcher.getTotalSupply(tokenAddress);
+      data = await ethereumFetcher.getTotalSupplyFormatted(tokenAddress);
       await cacheManager.set(cacheKey, data, 1800); // 30 minutes
     }
     
@@ -1630,8 +1906,20 @@ async function refreshAllData() {
       { coingeckoId: 'liquity', defiLlamaSlug: 'liquity-v2' }
     ];
 
+    // Stablecoins for refresh - matching the StablecoinDashboard configuration
+    const coreStablecoins = [
+      { coingeckoIds: ['dai', 'usds'], symbol: 'USDS_DAI' }, // Include both DAI and USDS
+      { coingeckoIds: ['ethena-usde'], symbol: 'USDe' },
+      { coingeckoIds: ['resolv-usr'], symbol: 'USR' },
+      { coingeckoIds: ['elixir-deusd'], symbol: 'deUSD' },
+      { coingeckoIds: ['crvusd'], symbol: 'crvUSD' },
+      { coingeckoIds: ['openeden-open-dollar'], symbol: 'USDO' },
+      { coingeckoIds: ['f-x-protocol-fxusd'], symbol: 'fxUSD' },
+      { coingeckoIds: ['resupply-usd'], symbol: 'reUSD' }
+    ];
+
     // Lightweight refresh - only market data and TVL (most important)
-    const refreshPromises = coreProtocols.map(protocol => 
+    const protocolRefreshPromises = coreProtocols.map(protocol => 
       (async () => {
         try {
           // Only refresh core market data 
@@ -1654,8 +1942,23 @@ async function refreshAllData() {
       })()
     );
 
+    // Stablecoin refresh - market data for each CoinGecko ID
+    const stablecoinRefreshPromises = coreStablecoins.flatMap(stablecoin => 
+      stablecoin.coingeckoIds.map(coingeckoId => 
+        (async () => {
+          try {
+            const marketData = await coinGeckoFetcher.fetchCoinData(coingeckoId);
+            await cacheManager.setWithSmartTTL(`coingecko:market-data:${coingeckoId}`, marketData, 'market-data');
+            logger.info(`Light refresh stablecoin: ${coingeckoId} (${stablecoin.symbol})`);
+          } catch (error) {
+            logger.error(`Light refresh failed for stablecoin ${coingeckoId}:`, error);
+          }
+        })()
+      )
+    );
+
     // Execute all refresh operations in parallel
-    await Promise.allSettled(refreshPromises);
+    await Promise.allSettled([...protocolRefreshPromises, ...stablecoinRefreshPromises]);
     
     // Clean up expired cache entries
     await cacheManager.cleanup();

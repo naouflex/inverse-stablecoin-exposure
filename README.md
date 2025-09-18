@@ -101,20 +101,39 @@ cp .env.example .env
 
 The dashboard will be available at `http://localhost:3000`
 
-### Monitored Stablecoins
+### Dashboard Structure
 
-The dashboard currently tracks the following stablecoins:
+The dashboard uses a **metrics-as-rows, stablecoins-as-columns** layout for easy comparison:
 
-1. **USDS + DAI** - Maker ecosystem stablecoins
-2. **USDe** - Ethena synthetic dollar
-3. **USR** - Real world asset-backed stablecoin
-4. **deUSD** - Decentralized USD
-5. **crvUSD** - Curve ecosystem stablecoin
-6. **USDO** - Omnichain stablecoin
-7. **fxUSD** - f(x) Protocol stablecoin
-8. **reUSD** - Reserve Protocol stablecoin
+**📊 Columns (8 Stablecoins):**
+- **USDS + DAI** - Maker ecosystem
+- **USDe** - Ethena synthetic dollar  
+- **USR** - Real world asset-backed
+- **deUSD** - Decentralized USD
+- **crvUSD** - Curve ecosystem
+- **USDO** - Omnichain stablecoin
+- **fxUSD** - f(x) Protocol
+- **reUSD** - Reserve Protocol
 
-Each stablecoin is monitored across four key metric categories with real-time data updates.
+**📈 Rows (4 Metric Sections):**
+
+1. **Supply Metrics** (Blue)
+   - Total Supply
+   - Supply secured by bridge
+   - Mainnet Supply
+   - Excl. lending markets, other networks
+
+2. **Mainnet Liquidity** (Green)
+   - Curve, Balancer, Uniswap, Sushiswap
+   - Total mainnet liquidity
+
+3. **Competitor Markets** (Purple)
+   - Aave, Morpho, Euler, Fluid Collateral
+   - Total lending markets
+
+4. **Safety Buffer** (Red)
+   - Insurance Layer/Fund, CR, Staked Supply
+   - % Supply on Mainnet, Factor of Safety
 
 ## 📊 Data Sources
 
@@ -395,8 +414,8 @@ We welcome contributions! This project thrives on community involvement:
 
 ## 🆘 Support & Community
 
-- **Issues**: [GitHub Issues](https://github.com/naouflex/open-index-metrics/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/naouflex/open-index-metrics/discussions)
+- **Issues**: [GitHub Issues](https://github.com/naouflex/inverse-stablecoin-exposure/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/naouflex/inverse-stablecoin-exposure/discussions)
 - **Documentation**: This README and inline code comments
 - **Examples**: Check the `examples/` directory for common customizations
 

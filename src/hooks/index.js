@@ -128,6 +128,7 @@ export {
   useStablecoinTotalSupply,
   useStablecoinMainnetSupply,
   useStablecoinBridgeSupply,
+  useStablecoinStakedSupplyFromCoinGecko,
   useAaveCollateralUsage,
   useMorphoCollateralUsage,
   useEulerCollateralUsage,

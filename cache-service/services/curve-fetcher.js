@@ -45,7 +45,7 @@ export class CurveFetcher {
 
   /**
    * Get Curve TVL for a specific token by finding all pools containing that token
-   * @param {string} tokenAddress - The token contract address
+   * @param {string} tokenAddress - The token contract address  
    * @returns {Promise<number>} - Total Value Locked in USD across all pools containing the token
    */
   async fetchTokenTVL(tokenAddress) {
@@ -69,20 +69,20 @@ export class CurveFetcher {
           }
           
           if (hasToken && pool.coins) {
-            // Calculate TVL using pool balances and USD prices
-            let poolTVL = 0;
+            // Calculate only the specific token's TVL in this pool, not the entire pool TVL
             for (const coin of pool.coins) {
-              if (coin.poolBalance && coin.usdPrice) {
-                const balance = Number(coin.poolBalance);
-                const price = Number(coin.usdPrice);
-                const decimals = Number(coin.decimals || 18);
-                const coinValue = (balance * price) / Math.pow(10, decimals);
-                poolTVL += coinValue;
+              if (coin.address && coin.address.toLowerCase() === tokenAddress.toLowerCase()) {
+                if (coin.poolBalance && coin.usdPrice) {
+                  const balance = Number(coin.poolBalance);
+                  const price = Number(coin.usdPrice);
+                  const decimals = Number(coin.decimals || 18);
+                  const coinValue = (balance * price) / Math.pow(10, decimals);
+                  totalTVL += coinValue;
+                  console.log(`Curve Pool: ${pool.name}, ${coin.symbol} TVL: ${coinValue}`);
+                }
+                break; // Found our token, no need to check other coins in this pool
               }
             }
-            
-            totalTVL += poolTVL;
-            console.log(`Curve Pool: ${pool.name}, TVL: ${poolTVL}`);
           }
         }
       }

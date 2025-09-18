@@ -53,42 +53,104 @@ import {
 import DataSourceBadge from './DataSourceBadge.jsx';
 import { exportStablecoinMetricsToCSV, exportDetailedStablecoinMetricsToCSV } from '../utils/stablecoinCsvExport.js';
 
-// ================= STABLECOIN ROW COMPONENT =================
+// ================= METRIC ROW COMPONENT =================
 
-function StablecoinRow({ stablecoin, shouldLoad }) {
+function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics, loadedStablecoins, isLoading }) {
   const bgColor = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
-  
-  // Get all metrics for this stablecoin
-  const metrics = useStablecoinCompleteMetrics(stablecoin, { enabled: shouldLoad });
-  
-  if (!shouldLoad) {
-    return (
-      <Tr>
-        <Td 
-          position="sticky"
-          left={0}
-          bg={bgColor}
-          borderRight="2px solid"
-          borderRightColor={borderColor}
-          zIndex={2}
-          boxShadow="2px 0 4px rgba(0,0,0,0.1)"
-        >
-          <Skeleton height="20px" />
-        </Td>
-        {/* Render skeleton cells for all columns */}
-        {Array.from({ length: 20 }).map((_, index) => (
-          <Td key={index}>
-            <Skeleton height="20px" />
-          </Td>
-        ))}
-      </Tr>
-    );
-  }
+
+  const getMetricValue = (stablecoinIndex, metricKey) => {
+    if (!loadedStablecoins.has(stablecoinIndex)) {
+      return <Skeleton height="20px" />;
+    }
+
+    const metrics = allStablecoinMetrics[stablecoinIndex];
+    if (!metrics) {
+      return <Text fontSize="sm" color="gray.500">N/A</Text>;
+    }
+
+    switch (metricKey) {
+      case 'totalSupply':
+        return metrics.totalSupply?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalSupply?.data?.data || 0)}</Text>;
+      
+      case 'bridgeSupply':
+        return metrics.bridgeSupply?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm" color="gray.500">{metrics.bridgeSupply?.data?._placeholder ? 'N/A' : formatStablecoinAmount(metrics.bridgeSupply?.data?.data || 0)}</Text>;
+      
+      case 'mainnetSupply':
+        return metrics.mainnetSupply?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.mainnetSupply?.data?.data || 0)}</Text>;
+      
+      case 'exclLendingOtherNetworks':
+        return <Text fontSize="sm" color="gray.500">N/A</Text>;
+      
+      case 'curveTVL':
+        return metrics.curveTVL?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.curveTVL?.data?.data || 0)}</Text>;
+      
+      case 'balancerTVL':
+        return metrics.balancerTVL?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.balancerTVL?.data?.data || 0)}</Text>;
+      
+      case 'uniswapTVL':
+        return metrics.uniswapTVL?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.uniswapTVL?.data?.data || 0)}</Text>;
+      
+      case 'sushiswapTVL':
+        return metrics.sushiTVL?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.sushiTVL?.data?.data || 0)}</Text>;
+      
+      case 'totalMainnetLiquidity':
+        return metrics.totalMainnetLiquidity?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm" fontWeight="bold" color="blue.600">{formatStablecoinAmount(metrics.totalMainnetLiquidity?.data || 0)}</Text>;
+      
+      case 'aaveCollateral':
+        return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.aave_v3?.totalTVL || 0)}</Text>;
+      
+      case 'morphoCollateral':
+        return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.morpho_combined?.totalTVL || 0)}</Text>;
+      
+      case 'eulerCollateral':
+        return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.euler?.totalTVL || 0)}</Text>;
+      
+      case 'fluidCollateral':
+        return <Text fontSize="sm" color="gray.500">N/A</Text>; // Not implemented yet
+      
+      case 'totalLendingMarkets':
+        return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm" fontWeight="bold" color="purple.600">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.totalLendingTVL || 0)}</Text>;
+      
+      case 'insuranceFund':
+        return metrics.insuranceFund?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm" color="gray.500">{metrics.insuranceFund?.data?._unavailable ? 'N/A' : formatStablecoinAmount(metrics.insuranceFund?.data?.data || 0)}</Text>;
+      
+      case 'collateralizationRatio':
+        return metrics.collateralizationRatio?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm" color="gray.500">{metrics.collateralizationRatio?.data?._unavailable ? 'N/A' : formatRatio(metrics.collateralizationRatio?.data?.data || 0)}</Text>;
+      
+      case 'stakedSupply':
+        return metrics.stakedSupply?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm" color="gray.500">{metrics.stakedSupply?.data?._unavailable ? 'N/A' : formatStablecoinAmount(metrics.stakedSupply?.data?.data || 0)}</Text>;
+      
+      case 'supplyOnMainnetPercent':
+        return metrics.supplyOnMainnetPercent?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatPercentage(metrics.supplyOnMainnetPercent?.data || 0)}</Text>;
+      
+      case 'factorOfSafety':
+        return <Text fontSize="sm" color="gray.500">N/A</Text>;
+      
+      default:
+        return <Text fontSize="sm" color="gray.500">N/A</Text>;
+    }
+  };
 
   return (
     <Tr>
-      {/* Stablecoin Name (Sticky) */}
+      {/* Metric Name (Sticky) */}
       <Td 
         position="sticky"
         left={0}
@@ -97,190 +159,45 @@ function StablecoinRow({ stablecoin, shouldLoad }) {
         borderRightColor={borderColor}
         zIndex={2}
         boxShadow="2px 0 4px rgba(0,0,0,0.1)"
-        minW={{ base: "120px", sm: "150px", md: "180px" }}
-        maxW={{ base: "120px", sm: "150px", md: "180px" }}
+        minW={{ base: "200px", sm: "250px", md: "300px" }}
+        maxW={{ base: "200px", sm: "250px", md: "300px" }}
+        borderLeft={`4px solid`}
+        borderLeftColor={sectionColor}
       >
-        <VStack spacing={1} align="start">
-          <Text fontWeight="bold" fontSize="sm">
-            {stablecoin.name}
-          </Text>
-          <Badge 
-            size="sm" 
-            colorScheme={
-              stablecoin.category === 'maker_ecosystem' ? 'orange' :
-              stablecoin.category === 'synthetic' ? 'purple' :
-              stablecoin.category === 'curve_ecosystem' ? 'red' :
-              'blue'
-            }
-          >
-            {stablecoin.category.replace('_', ' ')}
-          </Badge>
-        </VStack>
-      </Td>
-
-      {/* Supply Metrics */}
-      <Td textAlign="center">
-        {metrics.totalSupply?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatStablecoinAmount(metrics.totalSupply?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        {metrics.bridgeSupply?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm" color="gray.500">
-            {metrics.bridgeSupply?.data?._placeholder ? 'N/A' : formatStablecoinAmount(metrics.bridgeSupply?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        {metrics.mainnetSupply?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatStablecoinAmount(metrics.mainnetSupply?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        <Text fontSize="sm" color="gray.500">
-          N/A
+        <Text fontSize="sm" fontWeight="medium">
+          {metricLabel}
         </Text>
       </Td>
 
-      {/* Mainnet Liquidity */}
-      <Td textAlign="center">
-        {metrics.curveTVL?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatStablecoinAmount(metrics.curveTVL?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
+      {/* Values for each stablecoin */}
+      {stablecoins.map((stablecoin, index) => (
+        <Td key={stablecoin.symbol} textAlign="center" minW="120px">
+          {getMetricValue(index, metricKey)}
+        </Td>
+      ))}
+    </Tr>
+  );
+}
 
-      <Td textAlign="center">
-        {metrics.balancerTVL?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatStablecoinAmount(metrics.balancerTVL?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
+// ================= SECTION HEADER ROW COMPONENT =================
 
-      <Td textAlign="center">
-        {metrics.uniswapTVL?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatStablecoinAmount(metrics.uniswapTVL?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        {metrics.sushiTVL?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatStablecoinAmount(metrics.sushiTVL?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center" fontWeight="bold" color="blue.600">
-        {metrics.totalMainnetLiquidity?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatStablecoinAmount(metrics.totalMainnetLiquidity?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      {/* Competitor Markets */}
-      <Td textAlign="center">
-        <Text fontSize="sm" color="gray.500">
-          N/A
-        </Text>
-      </Td>
-
-      <Td textAlign="center">
-        <Text fontSize="sm" color="gray.500">
-          N/A
-        </Text>
-      </Td>
-
-      <Td textAlign="center">
-        <Text fontSize="sm" color="gray.500">
-          N/A
-        </Text>
-      </Td>
-
-      <Td textAlign="center">
-        <Text fontSize="sm" color="gray.500">
-          N/A
-        </Text>
-      </Td>
-
-      <Td textAlign="center" fontWeight="bold" color="purple.600">
-        <Text fontSize="sm" color="gray.500">
-          N/A
-        </Text>
-      </Td>
-
-      {/* Safety Buffer */}
-      <Td textAlign="center">
-        {metrics.insuranceFund?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm" color="gray.500">
-            {metrics.insuranceFund?.data?._unavailable ? 'N/A' : formatStablecoinAmount(metrics.insuranceFund?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        {metrics.collateralizationRatio?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm" color="gray.500">
-            {metrics.collateralizationRatio?.data?._unavailable ? 'N/A' : formatRatio(metrics.collateralizationRatio?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        {metrics.stakedSupply?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm" color="gray.500">
-            {metrics.stakedSupply?.data?._unavailable ? 'N/A' : formatStablecoinAmount(metrics.stakedSupply?.data?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        {metrics.supplyOnMainnetPercent?.isLoading ? (
-          <Skeleton height="20px" />
-        ) : (
-          <Text fontSize="sm">
-            {formatPercentage(metrics.supplyOnMainnetPercent?.data || 0)}
-          </Text>
-        )}
-      </Td>
-
-      <Td textAlign="center">
-        <Text fontSize="sm" color="gray.500">
-          N/A
+function SectionHeaderRow({ sectionTitle, sectionColor }) {
+  const bgColor = useColorModeValue('gray.100', 'gray.700');
+  
+  return (
+    <Tr bg={bgColor}>
+      <Td 
+        position="sticky"
+        left={0}
+        bg={bgColor}
+        zIndex={2}
+        boxShadow="2px 0 4px rgba(0,0,0,0.1)"
+        borderLeft={`6px solid`}
+        borderLeftColor={sectionColor}
+        colSpan={stablecoins.length + 1}
+      >
+        <Text fontSize="md" fontWeight="bold" color={sectionColor} py={2}>
+          {sectionTitle}
         </Text>
       </Td>
     </Tr>
@@ -294,7 +211,11 @@ export default function StablecoinDashboard() {
   const tableHeaderBg = useColorModeValue('gray.100', 'gray.700');
   
   const [loadedStablecoins, setLoadedStablecoins] = useState(new Set());
-  const [allMetricsData, setAllMetricsData] = useState({});
+
+  // Load all stablecoin metrics at the top level (following Rules of Hooks)
+  const allStablecoinMetrics = stablecoins.map((stablecoin, index) => 
+    useStablecoinCompleteMetrics(stablecoin, { enabled: loadedStablecoins.has(index) })
+  );
 
   useEffect(() => {
     // Load stablecoins one by one with short delays
@@ -310,28 +231,10 @@ export default function StablecoinDashboard() {
     loadStablecoinsSequentially();
   }, []);
 
-  // Collect all metrics data for CSV export
-  useEffect(() => {
-    const collectMetricsData = () => {
-      const metricsData = {};
-      stablecoins.forEach((stablecoin, index) => {
-        if (loadedStablecoins.has(index)) {
-          metricsData[index] = useStablecoinCompleteMetrics(stablecoin, { enabled: true });
-        }
-      });
-      setAllMetricsData(metricsData);
-    };
-
-    if (loadedStablecoins.size > 0) {
-      collectMetricsData();
-    }
-  }, [loadedStablecoins]);
-
   // Export to CSV handlers
   const handleExportCSV = () => {
     try {
-      const metricsArray = stablecoins.map((_, index) => allMetricsData[index] || {});
-      exportStablecoinMetricsToCSV(stablecoins, metricsArray);
+      exportStablecoinMetricsToCSV(stablecoins, allStablecoinMetrics);
     } catch (error) {
       console.error('CSV export failed:', error);
       alert('CSV export failed. Please try again.');
@@ -340,8 +243,7 @@ export default function StablecoinDashboard() {
 
   const handleExportDetailedCSV = () => {
     try {
-      const metricsArray = stablecoins.map((_, index) => allMetricsData[index] || {});
-      exportDetailedStablecoinMetricsToCSV(stablecoins, metricsArray);
+      exportDetailedStablecoinMetricsToCSV(stablecoins, allStablecoinMetrics);
     } catch (error) {
       console.error('Detailed CSV export failed:', error);
       alert('Detailed CSV export failed. Please try again.');
@@ -416,10 +318,10 @@ export default function StablecoinDashboard() {
         >
           <Thead bg={tableHeaderBg} position="sticky" top={0} zIndex={3}>
             <Tr>
-              {/* Stablecoin Name (Sticky) */}
+              {/* Metric Name Column (Sticky) */}
               <Th 
                 fontSize="xs"
-                textAlign="center"
+                textAlign="left"
                 position="sticky"
                 left={0}
                 bg={tableHeaderBg}
@@ -427,186 +329,193 @@ export default function StablecoinDashboard() {
                 borderRight="2px solid"
                 borderRightColor={useColorModeValue('gray.300', 'gray.600')}
                 boxShadow="2px 0 4px rgba(0,0,0,0.1)"
-                minW={{ base: "120px", sm: "150px", md: "180px" }}
-                maxW={{ base: "120px", sm: "150px", md: "180px" }}
+                minW={{ base: "200px", sm: "250px", md: "300px" }}
+                maxW={{ base: "200px", sm: "250px", md: "300px" }}
               >
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2}>Stablecoin</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Config" />
-                  </Box>
+                <Box py={2}>
+                  <Text fontWeight="bold">Metrics</Text>
                 </Box>
               </Th>
 
-              {/* Supply Metrics Section */}
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="blue.500" bg="blue.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="blue.600">Total Supply</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Blockchain" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="blue.500" bg="blue.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="blue.600">Supply secured by bridge</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Bridge APIs" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="blue.500" bg="blue.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="blue.600">Mainnet Supply</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Blockchain" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="blue.500" bg="blue.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="blue.600">Excl. lending markets, other networks</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Calculated" />
-                  </Box>
-                </Box>
-              </Th>
-
-              {/* Mainnet Liquidity Section */}
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="green.500" bg="green.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="green.600">Curve</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Curve API" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="green.500" bg="green.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="green.600">Balancer</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Balancer Subgraph" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="green.500" bg="green.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="green.600">Uniswap</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Uniswap Subgraph" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="green.500" bg="green.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="green.600">Sushiswap</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Sushiswap Subgraph" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="green.500" bg="green.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="green.600">Total mainnet liquidity</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Calculated" />
-                  </Box>
-                </Box>
-              </Th>
-
-              {/* Competitor Markets Section */}
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="purple.500" bg="purple.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="purple.600">Aave Collateral</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Aave API" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="purple.500" bg="purple.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="purple.600">Morpho Collateral</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Morpho API" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="purple.500" bg="purple.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="purple.600">Euler Collateral</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Euler API" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="purple.500" bg="purple.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="purple.600">Fluid Collateral</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Fluid API" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="purple.500" bg="purple.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="purple.600">Total lending markets</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Calculated" />
-                  </Box>
-                </Box>
-              </Th>
-
-              {/* Safety Buffer Section */}
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="red.500" bg="red.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="red.600">Insurance Layer/Fund</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Protocol API" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="red.500" bg="red.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="red.600">CR</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Protocol API" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="red.500" bg="red.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="red.600">Staked Supply</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Staking Contracts" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="red.500" bg="red.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="red.600">% Supply on Mainnet</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Calculated" />
-                  </Box>
-                </Box>
-              </Th>
-              <Th fontSize="xs" textAlign="center" borderBottom="3px solid" borderBottomColor="red.500" bg="red.50">
-                <Box position="relative" h="90px" display="flex" flexDirection="column" alignItems="center" justifyContent="flex-start" pt={2}>
-                  <Text mb={2} fontWeight="bold" color="red.600">Factor of Safety</Text>
-                  <Box position="absolute" bottom={1}>
-                    <DataSourceBadge source="Calculated" />
-                  </Box>
-                </Box>
-              </Th>
+              {/* Stablecoin Columns */}
+              {stablecoins.map((stablecoin) => (
+                <Th 
+                  key={stablecoin.symbol}
+                  fontSize="xs" 
+                  textAlign="center"
+                  minW="120px"
+                  maxW="140px"
+                >
+                  <VStack spacing={1} py={2}>
+                    <Text fontWeight="bold" fontSize="sm" noOfLines={1}>
+                      {stablecoin.name}
+                    </Text>
+                    <Badge 
+                      size="sm" 
+                      colorScheme={
+                        stablecoin.category === 'sky' ? 'orange' :
+                        stablecoin.category === 'ethena' ? 'purple' :
+                        stablecoin.category === 'resolv' ? 'red' :
+                        stablecoin.category === 'elixir' ? 'green' :
+                        stablecoin.category === 'curve' ? 'blue' :
+                        stablecoin.category === 'openeden' ? 'cyan' :
+                        stablecoin.category === 'fx' ? 'pink' :
+                        stablecoin.category === 'reserve' ? 'teal' :
+                        'gray'
+                      }
+                    >
+                      {stablecoin.category.replace('_', ' ')}
+                    </Badge>
+                  </VStack>
+                </Th>
+              ))}
             </Tr>
           </Thead>
           <Tbody>
-            {stablecoins.map((stablecoin, index) => (
-              <StablecoinRow
-                key={stablecoin.symbol}
-                stablecoin={stablecoin}
-                shouldLoad={loadedStablecoins.has(index)}
-              />
-            ))}
+            {/* Supply Metrics Section */}
+            <SectionHeaderRow sectionTitle="Supply Metrics" sectionColor="blue.500" />
+            <MetricRow 
+              metricKey="totalSupply" 
+              metricLabel="Total Supply" 
+              sectionColor="blue.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="bridgeSupply" 
+              metricLabel="Supply secured by bridge" 
+              sectionColor="blue.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="mainnetSupply" 
+              metricLabel="Mainnet Supply" 
+              sectionColor="blue.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="exclLendingOtherNetworks" 
+              metricLabel="Excl. lending markets, other networks" 
+              sectionColor="blue.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+
+            {/* Mainnet Liquidity Section */}
+            <SectionHeaderRow sectionTitle="Mainnet Liquidity" sectionColor="green.500" />
+            <MetricRow 
+              metricKey="curveTVL" 
+              metricLabel="Curve" 
+              sectionColor="green.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="balancerTVL" 
+              metricLabel="Balancer" 
+              sectionColor="green.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="uniswapTVL" 
+              metricLabel="Uniswap" 
+              sectionColor="green.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="sushiswapTVL" 
+              metricLabel="Sushiswap" 
+              sectionColor="green.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="totalMainnetLiquidity" 
+              metricLabel="Total mainnet liquidity" 
+              sectionColor="green.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+
+            {/* Competitor Markets Section */}
+            <SectionHeaderRow sectionTitle="Competitor Markets" sectionColor="purple.500" />
+            <MetricRow 
+              metricKey="aaveCollateral" 
+              metricLabel="Aave Collateral" 
+              sectionColor="purple.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="morphoCollateral" 
+              metricLabel="Morpho Collateral" 
+              sectionColor="purple.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="eulerCollateral" 
+              metricLabel="Euler Collateral" 
+              sectionColor="purple.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="fluidCollateral" 
+              metricLabel="Fluid Collateral" 
+              sectionColor="purple.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="totalLendingMarkets" 
+              metricLabel="Total lending markets" 
+              sectionColor="purple.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+
+            {/* Safety Buffer Section */}
+            <SectionHeaderRow sectionTitle="Safety Buffer" sectionColor="red.500" />
+            <MetricRow 
+              metricKey="insuranceFund" 
+              metricLabel="Insurance Layer/Fund" 
+              sectionColor="red.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="collateralizationRatio" 
+              metricLabel="CR" 
+              sectionColor="red.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="stakedSupply" 
+              metricLabel="Staked Supply" 
+              sectionColor="red.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="supplyOnMainnetPercent" 
+              metricLabel="% Supply on Mainnet" 
+              sectionColor="red.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
+            <MetricRow 
+              metricKey="factorOfSafety" 
+              metricLabel="Factor of Safety" 
+              sectionColor="red.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+            />
           </Tbody>
         </Table>
       </Box>

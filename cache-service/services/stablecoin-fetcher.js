@@ -1,12 +1,44 @@
 // ================= STABLECOIN FETCHER =================
 // Service for fetching stablecoin-specific metrics
 
-import { safeExternalFetch } from './request-queue.js';
+import { RequestQueue, generateCacheKey } from './request-queue.js';
+
+// Simple safe fetch implementation for stablecoin data
+async function safeExternalFetch(cacheKey, fetchFunction, requestQueue, timeoutMs = 30000) {
+  try {
+    const requestKey = generateCacheKey('stablecoin', cacheKey);
+    
+    const result = await requestQueue.enqueue(requestKey, async () => {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+      );
+      
+      return await Promise.race([fetchFunction(), timeoutPromise]);
+    });
+    
+    return result;
+  } catch (error) {
+    // Return safe default on error
+    return { data: 0, _unavailable: true };
+  }
+}
 
 export class StablecoinFetcher {
   constructor(logger, redisClient) {
     this.logger = logger;
     this.redisClient = redisClient;
+    
+    // Initialize request queue for stablecoin-specific API calls
+    this.requestQueue = new RequestQueue({
+      concurrency: 2,
+      requestsPerSecond: 1, // Very conservative rate limit for external APIs
+      retryAttempts: 3,
+      baseDelay: 3000, // Longer base delay for external APIs
+      maxDelay: 45000, // Much longer max delay for complex API calls
+      circuitThreshold: 3,
+      circuitTimeout: 90000 // Longer circuit timeout for external services
+    });
+    
     this.circuitBreaker = {
       failures: 0,
       lastFailTime: 0,
@@ -38,8 +70,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000 // 8 second timeout
+      this.requestQueue,
+      30000 // 8 second timeout
     );
   }
 
@@ -63,8 +95,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000
+      this.requestQueue,
+      30000
     );
   }
 
@@ -88,8 +120,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000
+      this.requestQueue,
+      30000
     );
   }
 
@@ -113,8 +145,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000
+      this.requestQueue,
+      30000
     );
   }
 
@@ -144,8 +176,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000
+      this.requestQueue,
+      30000
     );
   }
 
@@ -170,8 +202,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000
+      this.requestQueue,
+      30000
     );
   }
 
@@ -194,8 +226,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000
+      this.requestQueue,
+      30000
     );
   }
 
@@ -223,8 +255,8 @@ export class StablecoinFetcher {
         
         return { data: mockData };
       },
-      this.circuitBreaker,
-      8000
+      this.requestQueue,
+      30000
     );
   }
 
@@ -260,5 +292,19 @@ export class StablecoinFetcher {
     }
     
     return results;
+  }
+
+  /**
+   * Get current request queue status for monitoring
+   */
+  getQueueStatus() {
+    return this.requestQueue.getStatus();
+  }
+
+  /**
+   * Clear the request queue (for cleanup)
+   */
+  clearQueue() {
+    this.requestQueue.clear();
   }
 }

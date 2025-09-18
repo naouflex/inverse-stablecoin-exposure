@@ -212,7 +212,7 @@ export default function Header() {
           {/* Logo on the left */}
           <Image 
             src="/logo.svg" 
-            alt="Open Index Logo" 
+            alt="Inverse Logo" 
             height={{ base: "30px", sm: "35px", md: "40px" }}
             width={{ base: "30px", sm: "35px", md: "40px" }}
             flexShrink={0}

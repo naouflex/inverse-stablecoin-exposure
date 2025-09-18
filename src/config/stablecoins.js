@@ -4,75 +4,96 @@ export const stablecoins = [
   {
     name: "USDS + DAI",
     symbol: "USDS_DAI",
-    coingeckoIds: ["dai", "usds"], // Multiple tokens for combined tracking
+    coingeckoIds: ["usds"], // Multiple tokens - will sum their values
     contractAddresses: {
       dai: "0x6b175474e89094c44da98b954eedeac495271d0f",
-      usds: "0xdC035D45d973E3EC169d2276DDab16f1e407384F"
+      usds: "0xdc035d45d973e3ec169d2276ddab16f1e407384f",
+      susds: "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd"
     },
-    category: "maker_ecosystem"
+    stakedCoingeckoIds: ["susds"], // sUSDS for staked supply
+    stakedContractAddress: "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd", // sUSDS contract
+    category: "sky"
   },
   {
     name: "USDe",
     symbol: "USDe",
     coingeckoIds: ["ethena-usde"],
     contractAddresses: {
-      usde: "0x4c9edd5852cd905f086c759e8383e09bff1e68b3"
+      usde: "0x4c9edd5852cd905f086c759e8383e09bff1e68b3",
+      susde: "0x9d39a5de30e57443bff2a8307a4256c8797a3497"
     },
-    category: "synthetic"
+    stakedCoingeckoIds: ["ethena-staked-usde"], // sUSDe for staked supply
+    stakedContractAddress: "0x9d39a5de30e57443bff2a8307a4256c8797a3497", // sUSDe contract
+    category: "ethena"
   },
   {
     name: "USR",
     symbol: "USR",
-    coingeckoIds: ["usr"], // Will need to verify this ID
+    coingeckoIds: ["resolv-usr"], // May need to verify
     contractAddresses: {
-      usr: "0x0000000000000000000000000000000000000000" // Placeholder - need actual address
+      usr: "0x66a1e37c9b0eaddca17d3662d6c05f4decf3e110" // Placeholder - need actual address
     },
-    category: "real_world_assets"
+    stakedCoingeckoIds: ["resolv-wstusr"], // No staked version available
+    stakedContractAddress: "0x1202f5c7b4b9e47a1a484e8b270be34dbbc75055",
+    category: "resolv"
   },
   {
     name: "deUSD",
     symbol: "deUSD",
-    coingeckoIds: ["deusd"], // Will need to verify this ID
+    coingeckoIds: ["elixir-deusd"], // May need to verify
     contractAddresses: {
-      deusd: "0x0000000000000000000000000000000000000000" // Placeholder - need actual address
+      deusd: "0x15700b564ca08d9439c58ca5053166e8317aa138",
+      sdeusd: "0x5c5b196abe0d54485975d1ec29617d42d9198326"
     },
-    category: "decentralized"
+    stakedCoingeckoIds: ["elixir-staked-deusd"], // sdeUSD for staked supply
+    stakedContractAddress: "0x5c5b196abe0d54485975d1ec29617d42d9198326", // sdeUSD contract
+    category: "elixir"
   },
   {
     name: "crvUSD",
     symbol: "crvUSD",
     coingeckoIds: ["crvusd"],
     contractAddresses: {
-      crvusd: "0xf939e0a03fb07f59a73314e73794be0e57ac1b4e"
+      crvusd: "0xf939e0a03fb07f59a73314e73794be0e57ac1b4e",
+      scrvusd: "0x0655977feb2f289a4ab78af67bab0d17aab84367"
     },
-    category: "curve_ecosystem"
+    stakedCoingeckoIds: ["savings-crvusd"], // scrvUSD for staked supply
+    stakedContractAddress: "0x0655977feb2f289a4ab78af67bab0d17aab84367", // scrvUSD contract
+    category: "curve"
   },
   {
     name: "USDO",
     symbol: "USDO",
-    coingeckoIds: ["usdo"], // Will need to verify this ID
+    coingeckoIds: ["openeden-open-dollar"], 
     contractAddresses: {
-      usdo: "0x0000000000000000000000000000000000000000" // Placeholder - need actual address
+      usdo: "0x8238884ec9668ef77b90c6dff4d1a9f4f4823bfe", // USDO token
+      cusdo: "0xad55aebc9b8c03fc43cd9f62260391c13c23e7c0" // cUSDO token (from Curve pool)
     },
-    category: "omnichain"
+    stakedCoingeckoIds: ["compounding-open-dollar"], // No staked version available
+    stakedContractAddress: "0xad55aebc9b8c03fc43cd9f62260391c13c23e7c0",
+    category: "openeden"
   },
   {
     name: "fxUSD",
     symbol: "fxUSD",
-    coingeckoIds: ["fxusd"], // Will need to verify this ID
+    coingeckoIds: ["f-x-protocol-fxusd"], 
     contractAddresses: {
-      fxusd: "0x0000000000000000000000000000000000000000" // Placeholder - need actual address
+      fxusd: "0x085780639cc2cacd35e474e71f4d000e2405d8f6"
     },
-    category: "fx_protocol"
+    stakedCoingeckoIds: ["fx-usd-saving"], // No staked version available
+    stakedContractAddress: "0x7743e50f534a7f9f1791dde7dcd89f7783eefc39",
+    category: "fx"
   },
   {
     name: "reUSD",
     symbol: "reUSD",
-    coingeckoIds: ["reusd"], // Will need to verify this ID
+    coingeckoIds: ["resupply-usd"], 
     contractAddresses: {
-      reusd: "0x0000000000000000000000000000000000000000" // Placeholder - need actual address
+      reusd: "0x57ab1e0003f623289cd798b1824be09a793e4bec"
     },
-    category: "reserve_protocol"
+    stakedCoingeckoIds: [], // No staked version available
+    stakedContractAddress: "0x557AB1e003951A73c12D16F0fEA8490E39C33C35",
+    category: "reserve"
   }
 ];
 

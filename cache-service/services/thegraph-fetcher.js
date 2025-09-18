@@ -1,9 +1,21 @@
 import axios from 'axios';
+import { RequestQueue, generateCacheKey } from './request-queue.js';
 
 export class TheGraphFetcher {
   constructor() {
     this.apiKey = process.env.THE_GRAPH_API_KEY;
     this.baseUrl = 'https://gateway.thegraph.com/api';
+    
+    // Initialize request queue with conservative settings for The Graph API
+    this.requestQueue = new RequestQueue({
+      concurrency: 2, // Max 2 concurrent requests to prevent overload
+      requestsPerSecond: 2, // Even more conservative rate limit for The Graph
+      retryAttempts: 3,
+      baseDelay: 2000, // Longer base delay
+      maxDelay: 30000, // Much longer max delay for complex queries
+      circuitThreshold: 3,
+      circuitTimeout: 60000 // Longer circuit timeout
+    });
     
     // Subgraph IDs - these should match your environment variables
     this.subgraphs = {
@@ -12,7 +24,13 @@ export class TheGraphFetcher {
       sushi_v3: process.env.SUSHI_SUBGRAPH_ID,
       sushi_v2: process.env.SUSHI_V2_SUBGRAPH_ID,
       fraxswap: process.env.FRAXSWAP_SUBGRAPH_ID,
-      balancer: process.env.BALANCER_V2_SUBGRAPH_ID
+      balancer: process.env.BALANCER_V2_SUBGRAPH_ID,
+      // Lending protocol subgraphs
+      aave_v3: process.env.AAVE_V3_MAINNET,
+      morpho_compound: process.env.MORPHO_COMPOUND_MAINNET,
+      morpho_aave_v2: process.env.MORPHO_AAVE_V2_MAINNET,
+      morpho_aave_v3: process.env.MORPHO_AAVE_V3_MAINNET,
+      euler: process.env.EULER_MAINNET
     };
   }
 
@@ -26,24 +44,49 @@ export class TheGraphFetcher {
   async fetchData(protocol, queryType, params = {}) {
     try {
       const subgraphId = this.subgraphs[protocol];
+      if (!subgraphId) {
+        throw new Error(`No subgraph ID found for protocol: ${protocol}`);
+      }
 
       const url = this.getSubgraphUrl(subgraphId);
       const query = this.buildQuery(protocol, queryType, params);
       
-      console.log(`Fetching ${protocol} ${queryType} data from The Graph`);
+      // Generate a unique request key for deduplication
+      const requestKey = generateCacheKey('thegraph', `${protocol}-${queryType}`, params);
       
-      const response = await axios.post(url, {
-        query: query
-      }, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 8000 // Reduced to 8s to match safeExternalFetch and prevent 504 errors
+      console.log(`Queueing ${protocol} ${queryType} data request from The Graph`);
+      
+      // Use the request queue to manage the API call
+      const result = await this.requestQueue.enqueue(requestKey, async () => {
+        console.log(`Executing ${protocol} ${queryType} data request from The Graph`);
+        
+        const response = await axios.post(url, {
+          query: query
+        }, {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: queryType.includes('lending') ? 30000 : 30000 // Longer timeout for lending queries
+        });
+
+        // Debug logging for lending queries
+        if (queryType.includes('lending')) {
+          console.log(`Full GraphQL response for ${protocol}:`, JSON.stringify(response.data, null, 2));
+          if (response.data.errors) {
+            console.error(`GraphQL errors for ${protocol}:`, response.data.errors);
+          }
+        }
+
+        // Check for GraphQL errors
+        if (response.data.errors && response.data.errors.length > 0) {
+          throw new Error(`GraphQL errors: ${response.data.errors.map(e => e.message).join(', ')}`);
+        }
+
+        return response.data;
       });
 
-
       // Process data according to the working approach
-      const processedData = this.processResponseData(protocol, queryType, response.data.data);
+      const processedData = this.processResponseData(protocol, queryType, result.data);
 
       return {
         protocol,
@@ -53,6 +96,7 @@ export class TheGraphFetcher {
       };
     } catch (error) {
       console.error(`Error fetching ${protocol} ${queryType} data:`, error.message);
+      throw error; // Re-throw to allow proper error handling upstream
     }
   }
 
@@ -180,6 +224,14 @@ export class TheGraphFetcher {
       }
     }
     
+    // Handle lending queries
+    if (queryType === 'lending_reserves' || queryType === 'lending_markets') {
+      // Debug logging for lending queries
+      console.log(`Processing ${protocol} ${queryType} data:`, JSON.stringify(data, null, 2));
+      // Return the markets data directly for lending protocols
+      return data;
+    }
+    
     // For all other cases, return data as-is
     return data;
   }
@@ -202,6 +254,12 @@ export class TheGraphFetcher {
       
       case 'all_pools':
         return this.buildAllPoolsQuery(protocol, first);
+      
+      case 'lending_reserves':
+        return this.buildLendingReservesQuery(protocol, tokenAddress);
+      
+      case 'lending_markets':
+        return this.buildLendingMarketsQuery(protocol, tokenAddress);
       
       default:
         throw new Error(`Unknown query type: ${queryType}`);
@@ -503,5 +561,104 @@ export class TheGraphFetcher {
       default:
         throw new Error(`All pools query not implemented for ${protocol}`);
     }
+  }
+
+  // ================= LENDING PROTOCOL QUERIES =================
+
+  buildLendingReservesQuery(protocol, tokenAddress) {
+    const address = tokenAddress?.toLowerCase();
+    
+    switch (protocol) {
+      case 'aave_v3':
+        return `{
+          markets(where: { inputToken_: { id: "${address}" } }) {
+            id
+            name
+            inputToken {
+              id
+              symbol
+              name
+            }
+            totalValueLockedUSD
+            totalDepositBalanceUSD
+            totalBorrowBalanceUSD
+            outputTokenSupply
+            inputTokenBalance
+            inputTokenPriceUSD
+            outputTokenPriceUSD
+            exchangeRate
+            isActive
+            canBorrowFrom
+            canUseAsCollateral
+            maximumLTV
+            liquidationThreshold
+          }
+        }`;
+      
+      default:
+        throw new Error(`Lending reserves query not implemented for ${protocol}`);
+    }
+  }
+
+  buildLendingMarketsQuery(protocol, tokenAddress) {
+    const address = tokenAddress?.toLowerCase();
+    
+    switch (protocol) {
+      case 'morpho_compound':
+      case 'morpho_aave_v2':
+      case 'morpho_aave_v3':
+        return `{
+          markets(where: { inputToken_: { id: "${address}" } }) {
+            id
+            name
+            inputToken {
+              id
+              symbol
+              name
+            }
+            totalValueLockedUSD
+            totalDepositBalanceUSD
+            totalBorrowBalanceUSD
+            inputTokenBalance
+            inputTokenPriceUSD
+            exchangeRate
+            isActive
+          }
+        }`;
+      
+      case 'euler':
+        return `{
+          markets(where: { inputToken_: { id: "${address}" } }) {
+            id
+            name
+            inputToken {
+              id
+              symbol
+              name
+            }
+            totalValueLockedUSD
+            totalDepositBalanceUSD
+            totalBorrowBalanceUSD
+            isActive
+          }
+        }`;
+      
+      default:
+        throw new Error(`Lending markets query not implemented for ${protocol}`);
+    }
+  }
+
+  /**
+   * Get current request queue status for monitoring
+   */
+  getQueueStatus() {
+    return this.requestQueue.getStatus();
+  }
+
+  /**
+   * Clear the request queue (for cleanup)
+   */
+  clearQueue() {
+    this.requestQueue.clear();
   }
 } 

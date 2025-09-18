@@ -8,7 +8,7 @@ const CACHE_API_BASE = '/api'; // Proxied to cache service via Nginx
 // Create axios instance for cache service
 const cacheApi = axios.create({
   baseURL: CACHE_API_BASE,
-  timeout: 8000, // Aligned with backend timeout to prevent 504 errors
+  timeout: 35000, // Longer timeout to accommodate backend processing and queue delays
 });
 
 // Add request/response interceptors for debugging
@@ -338,6 +338,11 @@ export async function fetchUniswapV2TokenTVL(tokenAddress) {
 export async function fetchCurveTokenTVL(tokenAddress) {
   try {
     const response = await cacheApi.get(`/curve/token-tvl/${tokenAddress}`);
+    
+    // Handle new object format: { data: { total: number, breakdown: {} } }
+    if (typeof response.data?.data === 'object' && response.data.data !== null && response.data.data.total !== undefined) {
+      return Number(response.data.data.total);
+    }
     
     // CurveFetcher returns a simple number wrapped in standard format: { data: number }
     if (typeof response.data?.data === 'number') {

@@ -65,7 +65,7 @@ export default function Footer() {
             </Text>
             <Text fontSize="xs" color="gray.400" display={{ base: "none", sm: "inline" }}>•</Text>
             <Link 
-              href="https://github.com/naouflex/open-index-metrics/" 
+              href="https://github.com/naouflex/inverse-stablecoin-exposure/" 
               isExternal 
               color="blue.400" 
               _hover={{ color: 'blue.300' }}
