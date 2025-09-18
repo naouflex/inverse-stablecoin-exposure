@@ -135,6 +135,8 @@ export {
   useFluidCollateralUsage,
   useTotalLendingMarketUsage,
   useStablecoinInsuranceFund,
+  useStablecoinInsuranceFundFromBalances,
+  useStablecoinFDVFromCoinGecko,
   useStablecoinCollateralizationRatio,
   useStablecoinStakedSupply,
   useStablecoinCompleteMetrics

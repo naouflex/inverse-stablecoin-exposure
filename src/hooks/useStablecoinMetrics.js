@@ -4,8 +4,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import axios from 'axios';
-import { useTokenTotalSupply, useTokenDecimals } from './useEthereum.js';
-import { formatTokenAmount } from '../services/cache-client.js';
+import { useTokenTotalSupply, useTokenDecimals, useMultipleTokenBalancesWithUSD } from './useEthereum.js';
+import { formatTokenAmount, getLPTokenValueUSD, fetchFDV } from '../services/cache-client.js';
 
 // Create axios instance for API calls
 const api = axios.create({
@@ -337,7 +337,136 @@ export function useTotalLendingMarketUsage(contractAddress, options = {}) {
 // ================= SAFETY BUFFER METRICS =================
 
 /**
- * Hook to fetch insurance fund data for a stablecoin
+ * Hook to fetch insurance fund data by monitoring token balances at specific addresses
+ */
+export function useStablecoinInsuranceFundFromBalances(insuranceFundConfig, options = {}) {
+  // Create queries for regular tokens
+  const regularTokenQueries = useMemo(() => {
+    if (!insuranceFundConfig?.monitoredAddresses || !insuranceFundConfig?.tokensToMonitor) {
+      return [];
+    }
+    
+    return insuranceFundConfig.monitoredAddresses.map(address => 
+      useMultipleTokenBalancesWithUSD(insuranceFundConfig.tokensToMonitor, address, options)
+    );
+  }, [insuranceFundConfig?.monitoredAddresses, insuranceFundConfig?.tokensToMonitor, options]);
+
+  // Create queries for LP tokens
+  const lpTokenQueries = useMemo(() => {
+    if (!insuranceFundConfig?.monitoredAddresses || !insuranceFundConfig?.lpTokensToMonitor) {
+      return [];
+    }
+
+    const queries = [];
+    
+    insuranceFundConfig.monitoredAddresses.forEach(address => {
+      insuranceFundConfig.lpTokensToMonitor.forEach(lpConfig => {
+        const queryKey = ['lp-token-value', lpConfig.lpTokenAddress, address, lpConfig.poolAddress];
+        
+        const lpQuery = useQuery({
+          queryKey,
+          queryFn: async () => {
+            return await getLPTokenValueUSD(
+              lpConfig.lpTokenAddress,
+              address,
+              lpConfig.poolAddress,
+              lpConfig.underlyingTokens,
+              lpConfig.protocol
+            );
+          },
+          enabled: !!(lpConfig.lpTokenAddress && address && lpConfig.poolAddress),
+          staleTime: 2 * 60 * 1000, // 2 minutes
+          cacheTime: 5 * 60 * 1000, // 5 minutes
+          retry: 2,
+          ...options
+        });
+
+        queries.push({
+          query: lpQuery,
+          address,
+          lpConfig
+        });
+      });
+    });
+
+    return queries;
+  }, [insuranceFundConfig?.monitoredAddresses, insuranceFundConfig?.lpTokensToMonitor, options]);
+
+  // Aggregate the results
+  const aggregatedData = useMemo(() => {
+    const hasRegularTokens = regularTokenQueries.length > 0;
+    const hasLPTokens = lpTokenQueries.length > 0;
+
+    if (!hasRegularTokens && !hasLPTokens) {
+      return {
+        data: 0,
+        _unavailable: true,
+        isLoading: false
+      };
+    }
+
+    const regularTokensLoading = regularTokenQueries.some(query => query.isLoading);
+    const lpTokensLoading = lpTokenQueries.some(item => item.query.isLoading);
+    const isLoading = regularTokensLoading || lpTokensLoading;
+    
+    if (isLoading) {
+      return {
+        data: 0,
+        isLoading: true
+      };
+    }
+
+    let totalUSDValue = 0;
+    const breakdown = {};
+
+    // Process regular token balances
+    regularTokenQueries.forEach((query, addressIndex) => {
+      const address = insuranceFundConfig.monitoredAddresses[addressIndex];
+      if (!breakdown[address]) breakdown[address] = { tokens: {}, lpTokens: {} };
+      
+      if (query.data) {
+        Object.entries(query.data).forEach(([tokenAddress, tokenData]) => {
+          const usdValue = tokenData.balanceUSD || 0;
+          totalUSDValue += usdValue;
+          breakdown[address].tokens[tokenAddress] = {
+            balance: tokenData.balance || 0,
+            balanceUSD: usdValue,
+            price: tokenData.price || 0,
+            type: 'token'
+          };
+        });
+      }
+    });
+
+    // Process LP token balances
+    lpTokenQueries.forEach(({ query, address, lpConfig }) => {
+      if (!breakdown[address]) breakdown[address] = { tokens: {}, lpTokens: {} };
+      
+      if (query.data && query.data.lpBalanceUSD > 0) {
+        totalUSDValue += query.data.lpBalanceUSD;
+        breakdown[address].lpTokens[lpConfig.lpTokenAddress] = {
+          ...query.data,
+          type: 'lp_token',
+          protocol: lpConfig.protocol,
+          poolAddress: lpConfig.poolAddress,
+          underlyingTokens: lpConfig.underlyingTokens
+        };
+      }
+    });
+
+    return {
+      data: totalUSDValue,
+      isLoading: false,
+      breakdown,
+      source: 'blockchain_balances_with_lp'
+    };
+  }, [regularTokenQueries, lpTokenQueries, insuranceFundConfig]);
+
+  return aggregatedData;
+}
+
+/**
+ * Hook to fetch insurance fund data for a stablecoin (legacy API approach)
  */
 export function useStablecoinInsuranceFund(stablecoinSymbol, options = {}) {
   return useQuery({
@@ -382,6 +511,41 @@ export function useStablecoinCollateralizationRatio(stablecoinSymbol, options = 
     staleTime: 15 * 60 * 1000,
     cacheTime: 60 * 60 * 1000,
     retry: 1,
+    ...options
+  });
+}
+
+/**
+ * Hook to fetch FDV from CoinGecko for a specific token (used for Resolv RLP)
+ */
+export function useStablecoinFDVFromCoinGecko(coingeckoId, options = {}) {
+  return useQuery({
+    queryKey: ['stablecoin-fdv-cg', coingeckoId],
+    queryFn: async () => {
+      if (!coingeckoId) return { data: 0, _unavailable: true };
+      
+      try {
+        console.log(`Fetching FDV for ${coingeckoId}...`);
+        const fdvData = await fetchFDV(coingeckoId);
+        console.log(`FDV data received for ${coingeckoId}:`, fdvData);
+        
+        const result = {
+          data: fdvData.fdv || 0,
+          source: 'coingecko',
+          lastUpdated: fdvData.fetched_at || new Date().toISOString()
+        };
+        
+        console.log(`Processed FDV result for ${coingeckoId}:`, result);
+        return result;
+      } catch (error) {
+        console.warn(`CoinGecko FDV data unavailable for ${coingeckoId}:`, error);
+        return { data: 0, _unavailable: true };
+      }
+    },
+    enabled: !!coingeckoId && (options.enabled !== false),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    cacheTime: 30 * 60 * 1000, // 30 minutes
+    retry: 2,
     ...options
   });
 }
@@ -553,7 +717,51 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   }, [lendingQueries]);
   
   // Safety metrics
-  const insuranceFund = useStablecoinInsuranceFund(stablecoin.symbol, options);
+  const insuranceFundFromBalances = useStablecoinInsuranceFundFromBalances(stablecoin.insuranceFund, options);
+  const insuranceFundFromAPI = useStablecoinInsuranceFund(stablecoin.symbol, options);
+  
+  // For Resolv, fetch FDV from CoinGecko
+  const insuranceFundFromFDV = useStablecoinFDVFromCoinGecko(
+    stablecoin.insuranceFund?.type === 'fdv' ? stablecoin.insuranceFund.rlpCoingeckoId : null,
+    options
+  );
+  
+  // Choose the appropriate insurance fund data source based on configuration
+  const insuranceFund = useMemo(() => {
+    console.log(`Insurance fund logic for ${stablecoin.symbol}:`, {
+      type: stablecoin.insuranceFund?.type,
+      rlpCoingeckoId: stablecoin.insuranceFund?.rlpCoingeckoId,
+      fdvData: insuranceFundFromFDV.data,
+      fdvLoading: insuranceFundFromFDV.isLoading
+    });
+    
+    // Special case for Resolv: use FDV data
+    if (stablecoin.insuranceFund?.type === 'fdv' && stablecoin.insuranceFund.rlpCoingeckoId) {
+      const result = {
+        data: { data: insuranceFundFromFDV.data?.data || 0 },
+        isLoading: insuranceFundFromFDV.isLoading,
+        source: 'coingecko_fdv',
+        rlpTokenAddress: stablecoin.insuranceFund.rlpTokenAddress,
+        rlpCoingeckoId: stablecoin.insuranceFund.rlpCoingeckoId
+      };
+      console.log(`Resolv insurance fund result:`, result);
+      return result;
+    }
+    
+    // Standard case: use balance-based data if available
+    if (stablecoin.insuranceFund?.monitoredAddresses?.length > 0) {
+      return {
+        data: { data: insuranceFundFromBalances.data || 0 },
+        isLoading: insuranceFundFromBalances.isLoading,
+        breakdown: insuranceFundFromBalances.breakdown,
+        source: 'blockchain_balances'
+      };
+    }
+    
+    // Fallback to API data
+    return insuranceFundFromAPI;
+  }, [stablecoin.insuranceFund, insuranceFundFromBalances, insuranceFundFromAPI, insuranceFundFromFDV]);
+  
   const collateralizationRatio = useStablecoinCollateralizationRatio(stablecoin.symbol, options);
   
   // Use different approaches for staked supply based on the stablecoin

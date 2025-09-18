@@ -12,6 +12,23 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: ["susds"], // sUSDS for staked supply
     stakedContractAddress: "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd", // sUSDS contract
+    insuranceFund: {
+      monitoredAddresses: [
+      ],
+      tokensToMonitor: [
+      ],
+      lpTokensToMonitor: [
+        {
+          lpTokenAddress: "", // sDAI/USDS Curve LP
+          poolAddress: "",
+          underlyingTokens: [
+            "",
+            "" 
+          ],
+          protocol: "curve"
+        }
+      ]
+    },
     category: "sky"
   },
   {
@@ -24,6 +41,25 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: ["ethena-staked-usde"], // sUSDe for staked supply
     stakedContractAddress: "0x9d39a5de30e57443bff2a8307a4256c8797a3497", // sUSDe contract
+    insuranceFund: {
+      monitoredAddresses: [
+        "0x2b5ab59163a6e93b4486f6055d33ca4a115dd4d5" 
+      ],
+      tokensToMonitor: [
+        "0xc139190f447e929f090edeb554d95abb8b18ac1c", // USDtb
+      ],
+      lpTokensToMonitor: [
+        {
+          lpTokenAddress: "0xC2921134073151490193AC7369313c8e0b08e1E7", // USDtb/USDC
+          poolAddress: "0xC2921134073151490193AC7369313c8e0b08e1E7",
+          underlyingTokens: [
+            "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // USDe
+            "0xC139190F447e929f090Edeb554D95AbB8b18aC1C"  // FRAX
+          ],
+          protocol: "curve"
+        }
+      ]
+    },
     category: "ethena"
   },
   {
@@ -35,6 +71,14 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: ["resolv-wstusr"], // No staked version available
     stakedContractAddress: "0x1202f5c7b4b9e47a1a484e8b270be34dbbc75055",
+    insuranceFund: {
+      type: "fdv",
+      rlpTokenAddress: "0x4956b52ae2ff65d74ca2d61207523288e4528f96", // Resolv RLP token contract
+      rlpCoingeckoId: "resolv-rlp", // CoinGecko ID for RLP token (needs verification)
+      monitoredAddresses: [],
+      tokensToMonitor: [],
+      lpTokensToMonitor: []
+    },
     category: "resolv"
   },
   {
@@ -47,6 +91,23 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: ["elixir-staked-deusd"], // sdeUSD for staked supply
     stakedContractAddress: "0x5c5b196abe0d54485975d1ec29617d42d9198326", // sdeUSD contract
+    insuranceFund: {
+      monitoredAddresses: [
+      ],
+      tokensToMonitor: [
+      ],
+      lpTokensToMonitor: [
+        {
+          lpTokenAddress: "", // sDAI/USDS Curve LP
+          poolAddress: "",
+          underlyingTokens: [
+            "",
+            "" 
+          ],
+          protocol: "curve"
+        }
+      ]
+    },
     category: "elixir"
   },
   {
@@ -59,6 +120,23 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: ["savings-crvusd"], // scrvUSD for staked supply
     stakedContractAddress: "0x0655977feb2f289a4ab78af67bab0d17aab84367", // scrvUSD contract
+    insuranceFund: {
+      monitoredAddresses: [
+      ],
+      tokensToMonitor: [
+      ],
+      lpTokensToMonitor: [
+        {
+          lpTokenAddress: "",
+          poolAddress: "",
+          underlyingTokens: [
+            "",
+            "" 
+          ],
+          protocol: "curve"
+        }
+      ]
+    },
     category: "curve"
   },
   {
@@ -71,6 +149,23 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: ["compounding-open-dollar"], // No staked version available
     stakedContractAddress: "0xad55aebc9b8c03fc43cd9f62260391c13c23e7c0",
+    insuranceFund: {
+      monitoredAddresses: [
+      ],
+      tokensToMonitor: [
+      ],
+      lpTokensToMonitor: [
+        {
+          lpTokenAddress: "", // sDAI/USDS Curve LP
+          poolAddress: "",
+          underlyingTokens: [
+            "",
+            "" 
+          ],
+          protocol: "curve"
+        }
+      ]
+    },
     category: "openeden"
   },
   {
@@ -82,6 +177,23 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: ["fx-usd-saving"], // No staked version available
     stakedContractAddress: "0x7743e50f534a7f9f1791dde7dcd89f7783eefc39",
+    insuranceFund: {
+      monitoredAddresses: [
+      ],
+      tokensToMonitor: [
+      ],
+      lpTokensToMonitor: [
+        {
+          lpTokenAddress: "", // sDAI/USDS Curve LP
+          poolAddress: "",
+          underlyingTokens: [
+            "",
+            "" 
+          ],
+          protocol: "curve"
+        }
+      ]
+    },
     category: "fx"
   },
   {
@@ -93,6 +205,26 @@ export const stablecoins = [
     },
     stakedCoingeckoIds: [], // No staked version available
     stakedContractAddress: "0x557AB1e003951A73c12D16F0fEA8490E39C33C35",
+    insuranceFund: {
+      monitoredAddresses: [
+        "0x00000000efe883b3304aFf71eaCf72Dbc3e1b577"
+      ],
+      tokensToMonitor: [
+        "0x57ab1e0003f623289cd798b1824be09a793e4bec",
+        "0x419905009e4656fdc02418c7df35b1e61ed5f726"
+      ],
+      lpTokensToMonitor: [
+        {
+          lpTokenAddress: "", 
+          poolAddress: "",
+          underlyingTokens: [
+            "",
+            "" 
+          ],
+          protocol: "curve"
+        }
+      ]
+    },
     category: "reserve"
   }
 ];

@@ -179,4 +179,42 @@ export class CurveFetcher {
       return null;
     }
   }
+
+  /**
+   * Get total TVL for a specific Curve pool
+   * @param {string} poolAddress - The pool contract address
+   * @returns {Promise<number>} - Total pool TVL in USD
+   */
+  async fetchPoolTVL(poolAddress) {
+    try {
+      const url = `${this.baseUrl}/getPools/all/ethereum`;
+      const response = await axios.get(url, { timeout: 8000 });
+      
+      if (response.data.success && response.data.data && response.data.data.poolData) {
+        for (const pool of response.data.data.poolData) {
+          if (pool.address && pool.address.toLowerCase() === poolAddress.toLowerCase()) {
+            // Calculate total pool TVL from all coins
+            let poolTVL = 0;
+            if (pool.coins) {
+              for (const coin of pool.coins) {
+                if (coin.poolBalance && coin.usdPrice) {
+                  const balance = Number(coin.poolBalance);
+                  const price = Number(coin.usdPrice);
+                  const decimals = Number(coin.decimals || 18);
+                  const coinValue = (balance * price) / Math.pow(10, decimals);
+                  poolTVL += coinValue;
+                }
+              }
+            }
+            return poolTVL;
+          }
+        }
+      }
+      
+      return 0;
+    } catch (error) {
+      console.error(`Error fetching Curve pool TVL for ${poolAddress}:`, error.message);
+      return 0;
+    }
+  }
 } 

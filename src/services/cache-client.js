@@ -363,6 +363,16 @@ export async function fetchCurveTokenTVL(tokenAddress) {
   }
 }
 
+export async function fetchCurvePoolTVL(poolAddress) {
+  try {
+    const response = await cacheApi.get(`/curve/pool-tvl/${poolAddress}`);
+    return Number(response.data?.data || 0);
+  } catch (error) {
+    console.error(`Error fetching Curve pool TVL for ${poolAddress}:`, error);
+    return 0;
+  }
+}
+
 export async function fetchFraxswapTokenTVL(tokenAddress) {
   try {
     const response = await cacheApi.get(`/fraxswap/token-tvl/${tokenAddress}`);
@@ -648,6 +658,110 @@ export async function getTokenBalanceWithUSD(tokenAddress, holderAddress) {
   } catch (error) {
     console.error('Error fetching token balance with USD:', error);
     return { balance: 0, balanceUSD: 0, price: null };
+  }
+}
+
+/**
+ * Calculate the USD value of LP tokens held by an address
+ * @param {string} lpTokenAddress - LP token contract address
+ * @param {string} holderAddress - Address holding the LP tokens
+ * @param {string} poolAddress - Pool contract address
+ * @param {string[]} underlyingTokens - Array of underlying token addresses in the pool
+ * @param {string} protocol - Protocol name (curve, uniswap, etc.)
+ * @returns {Promise<object>} - LP token balance and USD value
+ */
+export async function getLPTokenValueUSD(lpTokenAddress, holderAddress, poolAddress, underlyingTokens, protocol = 'curve') {
+  try {
+    // Get LP token balance held by the address
+    const [lpBalance, lpDecimals, lpTotalSupply] = await Promise.all([
+      getTokenBalance(lpTokenAddress, holderAddress),
+      getTokenDecimals(lpTokenAddress),
+      getTotalSupply(lpTokenAddress)
+    ]);
+
+    if (!lpBalance || lpBalance === 0) {
+      return {
+        lpBalance: 0,
+        lpBalanceFormatted: 0,
+        lpBalanceUSD: 0,
+        shareOfPool: 0,
+        underlyingAssets: {}
+      };
+    }
+
+    // Format LP token balance
+    const lpBalanceFormatted = lpBalance / Math.pow(10, lpDecimals);
+    const lpTotalSupplyFormatted = lpTotalSupply / Math.pow(10, lpDecimals);
+    
+    // Calculate share of pool
+    const shareOfPool = lpTotalSupplyFormatted > 0 ? lpBalanceFormatted / lpTotalSupplyFormatted : 0;
+
+    // Get pool TVL based on protocol
+    let poolTVL = 0;
+    let underlyingAssets = {};
+
+    if (protocol === 'curve') {
+      // For Curve, get pool TVL from our existing Curve API
+      poolTVL = await fetchCurvePoolTVL(poolAddress);
+    } else {
+      // For other protocols, calculate TVL from underlying tokens
+      poolTVL = await getStandardPoolTVL(underlyingTokens, poolAddress);
+    }
+
+    // Get detailed breakdown of underlying assets
+    if (underlyingTokens && underlyingTokens.length > 0) {
+      const assetPromises = underlyingTokens.map(async (tokenAddress) => {
+        try {
+          const [balance, decimals, price] = await Promise.all([
+            getTokenBalance(tokenAddress, poolAddress),
+            getTokenDecimals(tokenAddress),
+            getTokenPrice(tokenAddress)
+          ]);
+
+          const balanceFormatted = balance / Math.pow(10, decimals);
+          const userShare = balanceFormatted * shareOfPool;
+          const userShareUSD = userShare * (price || 0);
+
+          return {
+            [tokenAddress.toLowerCase()]: {
+              balance: balanceFormatted,
+              userShare: userShare,
+              price: price || 0,
+              userShareUSD: userShareUSD
+            }
+          };
+        } catch (error) {
+          console.error(`Error getting underlying asset data for ${tokenAddress}:`, error);
+          return { [tokenAddress.toLowerCase()]: { balance: 0, userShare: 0, price: 0, userShareUSD: 0 } };
+        }
+      });
+
+      const assetResults = await Promise.all(assetPromises);
+      underlyingAssets = assetResults.reduce((acc, result) => ({ ...acc, ...result }), {});
+    }
+
+    // Calculate total USD value of LP position
+    const lpBalanceUSD = poolTVL * shareOfPool;
+
+    return {
+      lpBalance: lpBalanceFormatted,
+      lpBalanceFormatted,
+      lpBalanceUSD,
+      shareOfPool,
+      poolTVL,
+      underlyingAssets,
+      protocol
+    };
+
+  } catch (error) {
+    console.error('Error calculating LP token value:', error);
+    return {
+      lpBalance: 0,
+      lpBalanceFormatted: 0,
+      lpBalanceUSD: 0,
+      shareOfPool: 0,
+      underlyingAssets: {}
+    };
   }
 }
 

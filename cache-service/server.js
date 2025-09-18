@@ -1037,6 +1037,25 @@ app.get('/api/curve/token-volume/:tokenAddress', async (req, res) => {
   }
 });
 
+// fetchCurvePoolTVL -> /api/curve/pool-tvl/:poolAddress
+app.get('/api/curve/pool-tvl/:poolAddress', async (req, res) => {
+  try {
+    const { poolAddress } = req.params;
+    const cacheKey = `curve:pool-tvl:${poolAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await curveFetcher.fetchPoolTVL(poolAddress);
+      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache for pool TVL
+    }
+    
+    res.json({ data });
+  } catch (error) {
+    logger.error('Curve pool TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Curve pool TVL' });
+  }
+});
+
 // fetchAllCurvePools -> /api/curve/all-pools
 app.get('/api/curve/all-pools', async (req, res) => {
   try {
