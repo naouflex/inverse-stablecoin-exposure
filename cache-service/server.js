@@ -1890,22 +1890,6 @@ async function refreshAllData() {
   logger.info('Starting scheduled data refresh...');
   
   try {
-    // Light refresh strategy - only essential data
-    const coreProtocols = [
-      { coingeckoId: 'fxn-token', defiLlamaSlug: 'fx-protocol' },
-      { coingeckoId: 'ethena', defiLlamaSlug: 'ethena-usde' },
-      { coingeckoId: 'origin-protocol', defiLlamaSlug: 'origin-ether' },
-      { coingeckoId: 'reserve-rights-token', defiLlamaSlug: 'reserve-protocol' },
-      { coingeckoId: 'curve-dao-token', defiLlamaSlug: 'curve-dex' },
-      { coingeckoId: 'sky', defiLlamaSlug: 'sky-lending' },
-      { coingeckoId: 'alchemix', defiLlamaSlug: 'alchemix' },
-      { coingeckoId: 'syrup', defiLlamaSlug: 'maple' },
-      { coingeckoId: 'frax-share', defiLlamaSlug: 'frax' },
-      { coingeckoId: 'aave', defiLlamaSlug: 'aave-v3' },
-      { coingeckoId: 'inverse-finance', defiLlamaSlug: 'inverse-finance-firm' },
-      { coingeckoId: 'liquity', defiLlamaSlug: 'liquity-v2' }
-    ];
-
     // Stablecoins for refresh - matching the StablecoinDashboard configuration
     const coreStablecoins = [
       { coingeckoIds: ['dai', 'usds'], symbol: 'USDS_DAI' }, // Include both DAI and USDS
@@ -1918,29 +1902,6 @@ async function refreshAllData() {
       { coingeckoIds: ['resupply-usd'], symbol: 'reUSD' }
     ];
 
-    // Lightweight refresh - only market data and TVL (most important)
-    const protocolRefreshPromises = coreProtocols.map(protocol => 
-      (async () => {
-        try {
-          // Only refresh core market data 
-          const [marketData, tvlData] = await Promise.allSettled([
-            coinGeckoFetcher.fetchCoinData(protocol.coingeckoId),
-            defiLlamaFetcher.fetchProtocolTVL(protocol.defiLlamaSlug)
-          ]);
-
-          if (marketData.status === 'fulfilled') {
-            await cacheManager.setWithSmartTTL(`coingecko:market-data:${protocol.coingeckoId}`, marketData.value, 'market-data');
-          }
-          if (tvlData.status === 'fulfilled') {
-            await cacheManager.setWithSmartTTL(`defillama:tvl:${protocol.defiLlamaSlug}`, tvlData.value, 'protocol-tvl');
-          }
-          
-          logger.info(`Light refresh: ${protocol.coingeckoId}`);
-        } catch (error) {
-          logger.error(`Light refresh failed for ${protocol.coingeckoId}:`, error);
-        }
-      })()
-    );
 
     // Stablecoin refresh - market data for each CoinGecko ID
     const stablecoinRefreshPromises = coreStablecoins.flatMap(stablecoin => 
@@ -1958,7 +1919,7 @@ async function refreshAllData() {
     );
 
     // Execute all refresh operations in parallel
-    await Promise.allSettled([...protocolRefreshPromises, ...stablecoinRefreshPromises]);
+    await Promise.allSettled([...stablecoinRefreshPromises]);
     
     // Clean up expired cache entries
     await cacheManager.cleanup();
