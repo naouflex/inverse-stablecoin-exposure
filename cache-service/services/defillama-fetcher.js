@@ -6,15 +6,16 @@ export class DefiLlamaFetcher {
     this.baseUrl = 'https://api.llama.fi';
     this.priceUrl = 'https://coins.llama.fi'; // Separate URL for price endpoints
     
-    // Initialize request queue with conservative rate limits for DefiLlama
+    // Initialize request queue with optimized rate limits for DefiLlama
+    // Balanced settings for both DeFi and Stablecoin dashboards
     this.requestQueue = new RequestQueue({
-      concurrency: 2, // Max 2 concurrent requests
-      requestsPerSecond: 3, // Conservative rate limit (3 requests per second)
-      retryAttempts: 3,
-      baseDelay: 2000, // Start with 2s delay
-      maxDelay: 60000, // Max 1 minute delay
-      circuitThreshold: 3, // Open circuit after 3 failures
-      circuitTimeout: 120000 // 2 minutes timeout
+      concurrency: 5, // Increased from 2 - handle more parallel requests
+      requestsPerSecond: 8, // Increased from 3 - internal cache service requests
+      retryAttempts: 2, // Reduced from 3 - fail faster
+      baseDelay: 1000, // Reduced from 2000ms
+      maxDelay: 30000, // Reduced from 60000ms
+      circuitThreshold: 5, // Increased from 3 - more tolerant
+      circuitTimeout: 90000 // Reduced from 120000ms
     });
     
     // Batch processing for token prices

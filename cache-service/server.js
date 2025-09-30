@@ -1904,6 +1904,180 @@ app.get('/api/ethereum/token-total-supply/:tokenAddress', async (req, res) => {
   }
 });
 
+// ================= MANUAL DATA ENDPOINTS =================
+// For operator-entered data like Bridge Supply and CR
+
+// Simple API key for operator access
+const OPERATOR_API_KEY = process.env.OPERATOR_API_KEY || 'operator-key-change-in-production';
+
+// Debug endpoint to check what API key is loaded (remove in production!)
+app.get('/api/debug/operator-key-check', (req, res) => {
+  res.json({
+    keyIsSet: !!process.env.OPERATOR_API_KEY,
+    keyPrefix: OPERATOR_API_KEY ? OPERATOR_API_KEY.substring(0, 3) + '***' : 'not set',
+    usingDefault: OPERATOR_API_KEY === 'operator-key-change-in-production'
+  });
+});
+
+// Middleware to check operator authentication
+function requireOperator(req, res, next) {
+  const apiKey = req.headers['x-operator-key'] || req.query.apiKey;
+  
+  if (apiKey === OPERATOR_API_KEY) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Unauthorized - Invalid operator key' });
+  }
+}
+
+// GET /api/manual-data/:symbol/:metric - Public endpoint to retrieve manual data
+app.get('/api/manual-data/:symbol/:metric', async (req, res) => {
+  try {
+    const { symbol, metric } = req.params;
+    const key = `manual:${symbol.toLowerCase()}:${metric}`;
+    
+    const data = await redis.get(key);
+    
+    if (data) {
+      const parsed = JSON.parse(data);
+      res.json({
+        success: true,
+        data: parsed.value,
+        metadata: {
+          symbol,
+          metric,
+          lastUpdated: parsed.lastUpdated,
+          updatedBy: parsed.updatedBy || 'operator',
+          source: 'manual_entry'
+        }
+      });
+    } else {
+      res.json({
+        success: true,
+        data: null,
+        metadata: {
+          symbol,
+          metric,
+          message: 'No manual data available'
+        }
+      });
+    }
+  } catch (error) {
+    logger.error('Error retrieving manual data:', error);
+    res.status(500).json({ error: 'Failed to retrieve manual data' });
+  }
+});
+
+// GET /api/manual-data/:symbol - Public endpoint to retrieve all manual data for a stablecoin
+app.get('/api/manual-data/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const pattern = `manual:${symbol.toLowerCase()}:*`;
+    
+    const keys = await redis.keys(pattern);
+    const allData = {};
+    
+    for (const key of keys) {
+      const data = await redis.get(key);
+      if (data) {
+        const parsed = JSON.parse(data);
+        const metric = key.split(':')[2]; // Extract metric from key
+        allData[metric] = {
+          value: parsed.value,
+          lastUpdated: parsed.lastUpdated,
+          updatedBy: parsed.updatedBy || 'operator'
+        };
+      }
+    }
+    
+    res.json({
+      success: true,
+      symbol,
+      data: allData,
+      source: 'manual_entry'
+    });
+  } catch (error) {
+    logger.error('Error retrieving manual data:', error);
+    res.status(500).json({ error: 'Failed to retrieve manual data' });
+  }
+});
+
+// POST /api/manual-data/:symbol/:metric - Operator endpoint to save manual data
+app.post('/api/manual-data/:symbol/:metric', requireOperator, async (req, res) => {
+  try {
+    const { symbol, metric } = req.params;
+    const { value, notes } = req.body;
+    
+    if (value === undefined || value === null) {
+      return res.status(400).json({ error: 'Value is required' });
+    }
+    
+    // Validate metric type
+    const allowedMetrics = ['bridgeSupply', 'collateralizationRatio'];
+    if (!allowedMetrics.includes(metric)) {
+      return res.status(400).json({ 
+        error: 'Invalid metric', 
+        allowedMetrics 
+      });
+    }
+    
+    // Validate value is a number
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+      return res.status(400).json({ error: 'Value must be a number' });
+    }
+    
+    const key = `manual:${symbol.toLowerCase()}:${metric}`;
+    const data = {
+      value: numValue,
+      lastUpdated: new Date().toISOString(),
+      updatedBy: req.headers['x-operator-name'] || 'operator',
+      notes: notes || ''
+    };
+    
+    // Store in Redis with no expiration (manual data persists)
+    await redis.set(key, JSON.stringify(data));
+    
+    logger.info(`Manual data updated: ${key} = ${numValue}`);
+    
+    res.json({
+      success: true,
+      message: 'Data saved successfully',
+      data: {
+        symbol,
+        metric,
+        value: numValue,
+        lastUpdated: data.lastUpdated
+      }
+    });
+  } catch (error) {
+    logger.error('Error saving manual data:', error);
+    res.status(500).json({ error: 'Failed to save manual data' });
+  }
+});
+
+// DELETE /api/manual-data/:symbol/:metric - Operator endpoint to delete manual data
+app.delete('/api/manual-data/:symbol/:metric', requireOperator, async (req, res) => {
+  try {
+    const { symbol, metric } = req.params;
+    const key = `manual:${symbol.toLowerCase()}:${metric}`;
+    
+    const deleted = await redis.del(key);
+    
+    if (deleted > 0) {
+      res.json({
+        success: true,
+        message: 'Data deleted successfully'
+      });
+    } else {
+      res.status(404).json({ error: 'Data not found' });
+    }
+  } catch (error) {
+    logger.error('Error deleting manual data:', error);
+    res.status(500).json({ error: 'Failed to delete manual data' });
+  }
+});
+
 // Simplified data refresh function aligned with dashboard protocols
 async function refreshAllData() {
   logger.info('Starting scheduled data refresh...');

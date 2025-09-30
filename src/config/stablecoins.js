@@ -29,6 +29,16 @@ export const stablecoins = [
         }
       ]
     },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://app.sky.money/", // URL where operator can find bridge supply data
+        description: "Check Sky Money app for cross-chain supply"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://daistats.com/", // URL where operator can find CR data
+        description: "DAI Stats dashboard for collateralization ratio"
+      }
+    },
     category: "sky"
   },
   {
@@ -60,6 +70,16 @@ export const stablecoins = [
         }
       ]
     },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://ethena.fi/",
+        description: "Check Ethena app for cross-chain supply"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://app.ethena.fi/dashboards/transparency",
+        description: "Ethena transparency dashboard"
+      }
+    },
     category: "ethena"
   },
   {
@@ -78,6 +98,16 @@ export const stablecoins = [
       monitoredAddresses: [],
       tokensToMonitor: [],
       lpTokensToMonitor: []
+    },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://app.resolv.xyz/",
+        description: "Check Resolv app for cross-chain supply"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://app.resolv.xyz/",
+        description: "Resolv app dashboard"
+      }
     },
     category: "resolv"
   },
@@ -108,6 +138,16 @@ export const stablecoins = [
         }
       ]
     },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://elixir.xyz/",
+        description: "Check Elixir platform for cross-chain supply"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://elixir.xyz/",
+        description: "Elixir dashboard for collateralization data"
+      }
+    },
     category: "elixir"
   },
   {
@@ -136,6 +176,16 @@ export const stablecoins = [
           protocol: "curve"
         }
       ]
+    },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://classic.curve.fi/",
+        description: "Check Curve Finance for cross-chain crvUSD supply"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://crvusd.curve.fi/#/ethereum/markets",
+        description: "crvUSD markets dashboard"
+      }
     },
     category: "curve"
   },
@@ -166,6 +216,16 @@ export const stablecoins = [
         }
       ]
     },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://www.openeden.com/",
+        description: "Check OpenEden for cross-chain supply data"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://www.openeden.com/",
+        description: "OpenEden transparency page"
+      }
+    },
     category: "openeden"
   },
   {
@@ -193,6 +253,16 @@ export const stablecoins = [
           protocol: "curve"
         }
       ]
+    },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://fx.aladdin.club/",
+        description: "Check f(x) Protocol for cross-chain supply"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://fx.aladdin.club/",
+        description: "f(x) Protocol dashboard"
+      }
     },
     category: "fx"
   },
@@ -224,6 +294,16 @@ export const stablecoins = [
           protocol: "curve"
         }
       ]
+    },
+    manualDataSources: {
+      bridgeSupply: {
+        dataUrl: "https://reserve.org/",
+        description: "Check Reserve Protocol for cross-chain reUSD supply"
+      },
+      collateralizationRatio: {
+        dataUrl: "https://reserve.org/",
+        description: "Reserve Protocol dashboard for collateralization data"
+      }
     },
     category: "reserve"
   }

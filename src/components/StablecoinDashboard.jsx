@@ -28,10 +28,12 @@ import {
   ModalCloseButton,
   Button,
   useDisclosure,
-  Flex
+  Flex,
+  Progress,
+  IconButton
 } from '@chakra-ui/react';
 
-import { AlertIcon, TriangleUpIcon, TriangleDownIcon, ExternalLinkIcon, InfoIcon, DownloadIcon } from '@chakra-ui/icons';
+import { AlertIcon, TriangleUpIcon, TriangleDownIcon, ExternalLinkIcon, InfoIcon, DownloadIcon, EditIcon } from '@chakra-ui/icons';
 import { useState, useEffect, useMemo } from 'react';
 
 import { 
@@ -51,16 +53,25 @@ import {
 } from '../hooks/index.js';
 
 import DataSourceBadge from './DataSourceBadge.jsx';
+import OperatorDataEntry from './OperatorDataEntry.jsx';
 import { exportStablecoinMetricsToCSV, exportDetailedStablecoinMetricsToCSV } from '../utils/stablecoinCsvExport.js';
+import { extractStablecoinMetricValues, extractSortableValues, calculateAggregateStats } from '../utils/stablecoinMetricHelpers.js';
 
 // ================= METRIC ROW COMPONENT =================
 
-function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics, loadedStablecoins, isLoading }) {
+function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics, loadedStablecoins, isLoading, openOperatorModal }) {
   const bgColor = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
+  const hoverBg = useColorModeValue('orange.50', 'orange.900');
+  
+  // Define which metrics are manually entered
+  const manualMetrics = ['bridgeSupply', 'collateralizationRatio'];
 
   const getMetricValue = (stablecoinIndex, metricKey) => {
-    if (!loadedStablecoins.has(stablecoinIndex)) {
+    // Sequential loading check - similar to ProtocolRow's shouldLoad pattern
+    const shouldLoad = loadedStablecoins.has(stablecoinIndex);
+    
+    if (!shouldLoad) {
       return <Skeleton height="20px" />;
     }
 
@@ -69,6 +80,14 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
       return <Text fontSize="sm" color="gray.500">N/A</Text>;
     }
 
+    // NOTE: Alternative approach using extractStablecoinMetricValues helper:
+    // const extracted = extractStablecoinMetricValues(metrics, stablecoins[stablecoinIndex]);
+    // const metric = extracted[metricKey];
+    // if (metric.isLoading) return <Skeleton height="20px" />;
+    // return <Text fontSize="sm">{formatValue(metric.value)}</Text>;
+    //
+    // For now, keeping the explicit switch statement for clarity and full control
+
     switch (metricKey) {
       case 'totalSupply':
         return metrics.totalSupply?.isLoading ? <Skeleton height="20px" /> : 
@@ -76,14 +95,27 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
       
       case 'bridgeSupply':
         return metrics.bridgeSupply?.isLoading ? <Skeleton height="20px" /> : 
-          <Text fontSize="sm" color="gray.500">{metrics.bridgeSupply?.data?._placeholder ? 'N/A' : formatStablecoinAmount(metrics.bridgeSupply?.data?.data || 0)}</Text>;
+          <HStack spacing={1} justify="center">
+            <Text fontSize="sm" color={metrics.bridgeSupply?.data?.source === 'manual_entry' ? 'orange.500' : 'gray.500'}>
+              {metrics.bridgeSupply?.data?._placeholder ? 'N/A' : formatStablecoinAmount(metrics.bridgeSupply?.data?.data || 0)}
+            </Text>
+            <EditIcon boxSize={2.5} color="gray.400" opacity={0.6} />
+          </HStack>;
       
       case 'mainnetSupply':
         return metrics.mainnetSupply?.isLoading ? <Skeleton height="20px" /> : 
           <Text fontSize="sm">{formatStablecoinAmount(metrics.mainnetSupply?.data?.data || 0)}</Text>;
       
-      case 'exclLendingOtherNetworks':
-        return <Text fontSize="sm" color="gray.500">N/A</Text>;
+      case 'exclLendingOtherNetworks': {
+        // Calculate: Total Supply - Bridge Supply - Total Lending Markets
+        // Use helper to get calculated value (N/A values treated as 0)
+        const extracted = extractStablecoinMetricValues(metrics, stablecoins[stablecoinIndex]);
+        const calculatedValue = extracted.exclLendingOtherNetworks.value;
+        const isCalculating = extracted.exclLendingOtherNetworks.isLoading;
+        
+        return isCalculating ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(calculatedValue)}</Text>;
+      }
       
       case 'curveTVL':
         return metrics.curveTVL?.isLoading ? <Skeleton height="20px" /> : 
@@ -130,7 +162,12 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
       
       case 'collateralizationRatio':
         return metrics.collateralizationRatio?.isLoading ? <Skeleton height="20px" /> : 
-          <Text fontSize="sm" color="gray.500">{metrics.collateralizationRatio?.data?._unavailable ? 'N/A' : formatRatio(metrics.collateralizationRatio?.data?.data || 0)}</Text>;
+          <HStack spacing={1} justify="center">
+            <Text fontSize="sm" color={metrics.collateralizationRatio?.data?.source === 'manual_entry' ? 'orange.500' : 'gray.500'}>
+              {metrics.collateralizationRatio?.data?._unavailable ? 'N/A' : formatRatio(metrics.collateralizationRatio?.data?.data || 0)}
+            </Text>
+            <EditIcon boxSize={2.5} color="gray.400" opacity={0.6} />
+          </HStack>;
       
       case 'stakedSupply':
         return metrics.stakedSupply?.isLoading ? <Skeleton height="20px" /> : 
@@ -140,8 +177,46 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
         return metrics.supplyOnMainnetPercent?.isLoading ? <Skeleton height="20px" /> : 
           <Text fontSize="sm">{formatPercentage(metrics.supplyOnMainnetPercent?.data || 0)}</Text>;
       
-      case 'factorOfSafety':
-        return <Text fontSize="sm" color="gray.500">N/A</Text>;
+      case 'factorOfSafety': {
+        // Calculate Factor of Safety score (composite risk metric)
+        const extracted = extractStablecoinMetricValues(metrics, stablecoins[stablecoinIndex]);
+        const fosValue = extracted.factorOfSafety.value;
+        const isCalculating = extracted.factorOfSafety.isLoading;
+        
+        // Color code based on score
+        let color = 'gray.600';
+        if (fosValue >= 0.8) color = 'green.600';      // Excellent safety
+        else if (fosValue >= 0.6) color = 'blue.600';  // Good safety
+        else if (fosValue >= 0.4) color = 'orange.600';// Moderate safety
+        else color = 'red.600';                        // Poor safety
+        
+        return isCalculating ? <Skeleton height="20px" /> : 
+          <Tooltip 
+            label={`Components: Base(0.5) + Insurance(${extracted.factorOfSafety.components.insuranceComponent}) + CR(${extracted.factorOfSafety.components.crComponent}) + Staked(${extracted.factorOfSafety.components.stakedComponent}) + Mainnet(${extracted.factorOfSafety.components.mainnetComponent})`}
+            placement="top"
+          >
+            <Text fontSize="sm" fontWeight="bold" color={color}>
+              {fosValue.toFixed(2)}
+            </Text>
+          </Tooltip>;
+      }
+      
+      case 'theoreticalSupplyLimit': {
+        // Calculate Theoretical Supply Limit
+        const extracted = extractStablecoinMetricValues(metrics, stablecoins[stablecoinIndex]);
+        const limitValue = extracted.theoreticalSupplyLimit.value;
+        const isCalculating = extracted.theoreticalSupplyLimit.isLoading;
+        
+        return isCalculating ? <Skeleton height="20px" /> : 
+          <Tooltip 
+            label={`FoS(${extracted.theoreticalSupplyLimit.components.factorOfSafety.toFixed(2)}) × min(Excl.Lending: ${formatStablecoinAmount(extracted.theoreticalSupplyLimit.components.exclLendingMarkets)}, Liquidity: ${formatStablecoinAmount(extracted.theoreticalSupplyLimit.components.totalMainnetLiquidity)}) | Limited by: ${extracted.theoreticalSupplyLimit.components.limitedBy}`}
+            placement="top"
+          >
+            <Text fontSize="sm" fontWeight="bold" color="teal.600">
+              {formatStablecoinAmount(limitValue)}
+            </Text>
+          </Tooltip>;
+      }
       
       default:
         return <Text fontSize="sm" color="gray.500">N/A</Text>;
@@ -170,11 +245,23 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
       </Td>
 
       {/* Values for each stablecoin */}
-      {stablecoins.map((stablecoin, index) => (
-        <Td key={stablecoin.symbol} textAlign="center" minW="120px">
-          {getMetricValue(index, metricKey)}
-        </Td>
-      ))}
+      {stablecoins.map((stablecoin, index) => {
+        const isManualMetric = manualMetrics.includes(metricKey);
+        
+        return (
+          <Td 
+            key={stablecoin.symbol} 
+            textAlign="center" 
+            minW="120px"
+            cursor={isManualMetric ? 'pointer' : 'default'}
+            onClick={isManualMetric ? () => openOperatorModal(stablecoin.symbol, metricKey) : undefined}
+            _hover={isManualMetric ? { bg: hoverBg } : undefined}
+            title={isManualMetric ? 'Click to edit manual data' : undefined}
+          >
+            {getMetricValue(index, metricKey)}
+          </Td>
+        );
+      })}
     </Tr>
   );
 }
@@ -211,25 +298,69 @@ export default function StablecoinDashboard() {
   const tableHeaderBg = useColorModeValue('gray.100', 'gray.700');
   
   const [loadedStablecoins, setLoadedStablecoins] = useState(new Set());
+  
+  // Operator data entry modal with initial selection
+  const { isOpen: isOperatorModalOpen, onOpen: onOperatorModalOpen, onClose: onOperatorModalClose } = useDisclosure();
+  const [operatorInitialStablecoin, setOperatorInitialStablecoin] = useState(null);
+  const [operatorInitialMetric, setOperatorInitialMetric] = useState(null);
+  
+  // Function to open operator modal with specific stablecoin and metric
+  const openOperatorModal = (stablecoinSymbol = null, metric = null) => {
+    setOperatorInitialStablecoin(stablecoinSymbol);
+    setOperatorInitialMetric(metric);
+    onOperatorModalOpen();
+  };
+  
+  // Track if all stablecoins are loaded (similar to DeFi dashboard pattern)
+  const allStablecoinsLoaded = loadedStablecoins.size === stablecoins.length;
 
   // Load all stablecoin metrics at the top level (following Rules of Hooks)
+  // Use allStablecoinsLoaded flag for more efficient batch loading
   const allStablecoinMetrics = stablecoins.map((stablecoin, index) => 
-    useStablecoinCompleteMetrics(stablecoin, { enabled: loadedStablecoins.has(index) })
+    useStablecoinCompleteMetrics(stablecoin, { 
+      enabled: loadedStablecoins.has(index) || allStablecoinsLoaded 
+    })
   );
 
   useEffect(() => {
     // Load stablecoins one by one with short delays
+    // Similar to ProtocolRow pattern in DeFi dashboard where each row loads with shouldLoad prop
+    // Here, stablecoins are columns, so we enable them sequentially via loadedStablecoins Set
     const loadStablecoinsSequentially = async () => {
       for (let i = 0; i < stablecoins.length; i++) {
         setLoadedStablecoins(prev => new Set([...prev, i]));
         if (i < stablecoins.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300)); // 300ms delay
+          // Increased from 200ms to 500ms - give queue more time to process requests
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
     };
 
     loadStablecoinsSequentially();
   }, []);
+  
+  // Calculate loading progress
+  const loadingProgress = useMemo(() => {
+    const loaded = loadedStablecoins.size;
+    const total = stablecoins.length;
+    return {
+      loaded,
+      total,
+      percentage: total > 0 ? (loaded / total) * 100 : 0,
+      isComplete: loaded === total
+    };
+  }, [loadedStablecoins]);
+
+  // Extract sortable values for future sorting functionality
+  // Similar to protocolsWithData in DeFi dashboard
+  const stablecoinsWithSortableValues = useMemo(() => {
+    return extractSortableValues(stablecoins, allStablecoinMetrics);
+  }, [allStablecoinMetrics]);
+
+  // Calculate aggregate statistics across all stablecoins
+  const aggregateStats = useMemo(() => {
+    return calculateAggregateStats(allStablecoinMetrics);
+  }, [allStablecoinMetrics]);
 
   // Export to CSV handlers
   const handleExportCSV = () => {
@@ -264,33 +395,79 @@ export default function StablecoinDashboard() {
       py={{ base: 1, sm: 2, md: 3 }}
       px={{ base: 1, sm: 2, md: 3 }}
     >
-      {/* Export Buttons */}
+      {/* Loading Progress & Export Buttons */}
       <Flex 
-        justify="flex-end" 
+        justify="space-between" 
         align="center" 
         mb={2}
         px={2}
-        gap={2}
+        gap={4}
       >
-        <Button
-          leftIcon={<DownloadIcon />}
-          colorScheme="blue"
-          size="sm"
-          onClick={handleExportCSV}
-          _hover={{ bg: 'blue.600' }}
-        >
-          Export to CSV
-        </Button>
-        <Button
-          leftIcon={<DownloadIcon />}
-          colorScheme="purple"
-          size="sm"
-          onClick={handleExportDetailedCSV}
-          _hover={{ bg: 'purple.600' }}
-        >
-          Detailed Export
-        </Button>
+        {/* Sequential Loading Progress Indicator */}
+        {!loadingProgress.isComplete && (
+          <Box flex="1" maxW="300px">
+            <HStack spacing={2} mb={1}>
+              <Text fontSize="xs" color="gray.600">
+                Loading stablecoins: {loadingProgress.loaded} / {loadingProgress.total}
+              </Text>
+            </HStack>
+            <Progress 
+              value={loadingProgress.percentage} 
+              size="sm" 
+              colorScheme="blue"
+              borderRadius="md"
+            />
+          </Box>
+        )}
+        
+        {/* Spacer when loading is complete */}
+        {loadingProgress.isComplete && <Box flex="1" />}
+        
+        {/* Operator & Export Buttons */}
+        <HStack spacing={2}>
+          <Tooltip label="Enter manual data (Bridge Supply & CR)" placement="bottom">
+            <Button
+              leftIcon={<EditIcon />}
+              colorScheme="orange"
+              size="sm"
+              onClick={onOperatorModalOpen}
+              variant="outline"
+              _hover={{ bg: 'orange.50' }}
+            >
+              Operator
+            </Button>
+          </Tooltip>
+          
+          <Button
+            leftIcon={<DownloadIcon />}
+            colorScheme="blue"
+            size="sm"
+            onClick={handleExportCSV}
+            isDisabled={!loadingProgress.isComplete}
+            _hover={{ bg: 'blue.600' }}
+          >
+            Export to CSV
+          </Button>
+          <Button
+            leftIcon={<DownloadIcon />}
+            colorScheme="purple"
+            size="sm"
+            onClick={handleExportDetailedCSV}
+            isDisabled={!loadingProgress.isComplete}
+            _hover={{ bg: 'purple.600' }}
+          >
+            Detailed Export
+          </Button>
+        </HStack>
       </Flex>
+      
+      {/* Operator Data Entry Modal */}
+      <OperatorDataEntry 
+        isOpen={isOperatorModalOpen} 
+        onClose={onOperatorModalClose}
+        initialStablecoin={operatorInitialStablecoin}
+        initialMetric={operatorInitialMetric}
+      />
 
       <Box 
         flex="1"
@@ -380,6 +557,7 @@ export default function StablecoinDashboard() {
               sectionColor="blue.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="bridgeSupply" 
@@ -387,6 +565,7 @@ export default function StablecoinDashboard() {
               sectionColor="blue.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="mainnetSupply" 
@@ -394,6 +573,7 @@ export default function StablecoinDashboard() {
               sectionColor="blue.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="exclLendingOtherNetworks" 
@@ -401,6 +581,7 @@ export default function StablecoinDashboard() {
               sectionColor="blue.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
 
             {/* Mainnet Liquidity Section */}
@@ -411,6 +592,7 @@ export default function StablecoinDashboard() {
               sectionColor="green.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="balancerTVL" 
@@ -418,6 +600,7 @@ export default function StablecoinDashboard() {
               sectionColor="green.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="uniswapTVL" 
@@ -425,6 +608,7 @@ export default function StablecoinDashboard() {
               sectionColor="green.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="sushiswapTVL" 
@@ -432,6 +616,7 @@ export default function StablecoinDashboard() {
               sectionColor="green.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="totalMainnetLiquidity" 
@@ -439,6 +624,7 @@ export default function StablecoinDashboard() {
               sectionColor="green.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
 
             {/* Competitor Markets Section */}
@@ -449,6 +635,7 @@ export default function StablecoinDashboard() {
               sectionColor="purple.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="morphoCollateral" 
@@ -456,6 +643,7 @@ export default function StablecoinDashboard() {
               sectionColor="purple.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="eulerCollateral" 
@@ -463,6 +651,7 @@ export default function StablecoinDashboard() {
               sectionColor="purple.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="fluidCollateral" 
@@ -470,6 +659,7 @@ export default function StablecoinDashboard() {
               sectionColor="purple.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="totalLendingMarkets" 
@@ -477,6 +667,7 @@ export default function StablecoinDashboard() {
               sectionColor="purple.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
 
             {/* Safety Buffer Section */}
@@ -487,6 +678,7 @@ export default function StablecoinDashboard() {
               sectionColor="red.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="collateralizationRatio" 
@@ -494,6 +686,7 @@ export default function StablecoinDashboard() {
               sectionColor="red.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="stakedSupply" 
@@ -501,6 +694,7 @@ export default function StablecoinDashboard() {
               sectionColor="red.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="supplyOnMainnetPercent" 
@@ -508,6 +702,7 @@ export default function StablecoinDashboard() {
               sectionColor="red.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
             <MetricRow 
               metricKey="factorOfSafety" 
@@ -515,6 +710,15 @@ export default function StablecoinDashboard() {
               sectionColor="red.500"
               allStablecoinMetrics={allStablecoinMetrics}
               loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
+            />
+            <MetricRow 
+              metricKey="theoreticalSupplyLimit" 
+              metricLabel="Theoretical Supply Limit" 
+              sectionColor="red.500"
+              allStablecoinMetrics={allStablecoinMetrics}
+              loadedStablecoins={loadedStablecoins}
+              openOperatorModal={openOperatorModal}
             />
           </Tbody>
         </Table>

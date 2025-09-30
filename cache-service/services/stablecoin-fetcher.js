@@ -29,14 +29,15 @@ export class StablecoinFetcher {
     this.redisClient = redisClient;
     
     // Initialize request queue for stablecoin-specific API calls
+    // Optimized for stablecoin dashboard that makes many parallel requests
     this.requestQueue = new RequestQueue({
-      concurrency: 2,
-      requestsPerSecond: 1, // Very conservative rate limit for external APIs
-      retryAttempts: 3,
-      baseDelay: 3000, // Longer base delay for external APIs
-      maxDelay: 45000, // Much longer max delay for complex API calls
-      circuitThreshold: 3,
-      circuitTimeout: 90000 // Longer circuit timeout for external services
+      concurrency: 6, // Increased from 2 - handle multiple stablecoins efficiently
+      requestsPerSecond: 8, // Increased from 1 - much less restrictive
+      retryAttempts: 2, // Reduced from 3 - fail faster to avoid timeouts
+      baseDelay: 1500, // Reduced from 3000ms
+      maxDelay: 20000, // Reduced from 45000ms - fail faster
+      circuitThreshold: 5, // Increased from 3 - more tolerant
+      circuitTimeout: 60000 // Reduced from 90000ms
     });
     
     this.circuitBreaker = {

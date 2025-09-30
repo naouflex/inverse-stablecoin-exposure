@@ -6,15 +6,16 @@ export class TheGraphFetcher {
     this.apiKey = process.env.THE_GRAPH_API_KEY;
     this.baseUrl = 'https://gateway.thegraph.com/api';
     
-    // Initialize request queue with conservative settings for The Graph API
+    // Initialize request queue with optimized settings for The Graph API
+    // Higher limits for internal cache service usage (not direct external API calls)
     this.requestQueue = new RequestQueue({
-      concurrency: 2, // Max 2 concurrent requests to prevent overload
-      requestsPerSecond: 2, // Even more conservative rate limit for The Graph
+      concurrency: 8, // Increased from 2 - cache service can handle more parallel requests
+      requestsPerSecond: 10, // Increased from 2 - internal requests don't hit external rate limits directly
       retryAttempts: 3,
-      baseDelay: 2000, // Longer base delay
-      maxDelay: 30000, // Much longer max delay for complex queries
-      circuitThreshold: 3,
-      circuitTimeout: 60000 // Longer circuit timeout
+      baseDelay: 1000, // Reduced from 2000ms for faster retries
+      maxDelay: 20000, // Reduced from 30000ms
+      circuitThreshold: 5, // Increased from 3 - more tolerant
+      circuitTimeout: 60000
     });
     
     // Subgraph IDs - these should match your environment variables

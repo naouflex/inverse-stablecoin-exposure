@@ -10,7 +10,7 @@ import { formatTokenAmount, getLPTokenValueUSD, fetchFDV } from '../services/cac
 // Create axios instance for API calls
 const api = axios.create({
   baseURL: '/api',
-  timeout: 40000, // Longer timeout to accommodate backend queue processing
+  timeout: 60000, // Increased from 40s to 60s for stablecoin metrics with many parallel requests
 });
 
 // ================= SUPPLY METRICS =================
@@ -53,9 +53,10 @@ export function useStablecoinTotalSupply(coingeckoIds, options = {}) {
       }
     },
     enabled: !!coingeckoIds && coingeckoIds.length > 0 && (options.enabled !== false),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    cacheTime: 30 * 60 * 1000, // 30 minutes
-    retry: 2,
+    staleTime: 10 * 60 * 1000, // Increased from 5 to 10 minutes - reduce requests
+    cacheTime: 60 * 60 * 1000, // Increased from 30 to 60 minutes
+    retry: 1, // Reduced from 2 to 1 - fail faster to avoid timeouts
+    retryDelay: 1000, // Add 1s delay between retries
     ...options
   });
 }
@@ -98,15 +99,17 @@ export function useStablecoinMainnetSupply(coingeckoIds, options = {}) {
       }
     },
     enabled: !!coingeckoIds && coingeckoIds.length > 0 && (options.enabled !== false),
-    staleTime: 5 * 60 * 1000,
-    cacheTime: 30 * 60 * 1000,
-    retry: 2,
+    staleTime: 10 * 60 * 1000, // Increased from 5 to 10 minutes
+    cacheTime: 60 * 60 * 1000, // Increased from 30 to 60 minutes
+    retry: 1, // Reduced from 2 to 1
+    retryDelay: 1000,
     ...options
   });
 }
 
 /**
  * Hook to fetch bridge-secured supply
+ * First tries manual data from cache, fallback to auto-fetch (placeholder for now)
  */
 export function useStablecoinBridgeSupply(stablecoinSymbol, options = {}) {
   return useQuery({
@@ -114,13 +117,28 @@ export function useStablecoinBridgeSupply(stablecoinSymbol, options = {}) {
     queryFn: async () => {
       if (!stablecoinSymbol) return { data: 0, _unavailable: true };
       
-      // This would integrate with bridge APIs like LayerZero, Wormhole, etc.
+      // Try to fetch manual data first
+      try {
+        const response = await api.get(`/manual-data/${stablecoinSymbol}/bridgeSupply`);
+        if (response.data.success && response.data.data !== null) {
+          return { 
+            data: response.data.data,
+            source: 'manual_entry',
+            lastUpdated: response.data.metadata.lastUpdated,
+            updatedBy: response.data.metadata.updatedBy
+          };
+        }
+      } catch (error) {
+        console.log('No manual bridge supply data, using placeholder');
+      }
+      
+      // Fallback: This would integrate with bridge APIs like LayerZero, Wormhole, etc.
       // For now, return placeholder data
       return { data: 0, _unavailable: true, _placeholder: true };
     },
     enabled: !!stablecoinSymbol && (options.enabled !== false),
-    staleTime: 10 * 60 * 1000,
-    cacheTime: 60 * 60 * 1000,
+    staleTime: 2 * 60 * 1000, // 2 minutes - shorter for manual data
+    cacheTime: 10 * 60 * 1000,
     retry: 2,
     ...options
   });
@@ -199,6 +217,7 @@ export function useAaveCollateralUsage(contractAddress, options = {}) {
     staleTime: 15 * 60 * 1000,
     cacheTime: 60 * 60 * 1000,
     retry: 1,
+    retryDelay: 1000,
     ...options
   });
 }
@@ -492,6 +511,7 @@ export function useStablecoinInsuranceFund(stablecoinSymbol, options = {}) {
 
 /**
  * Hook to fetch collateralization ratio for a stablecoin
+ * First tries manual data from cache, fallback to auto-fetch
  */
 export function useStablecoinCollateralizationRatio(stablecoinSymbol, options = {}) {
   return useQuery({
@@ -499,6 +519,22 @@ export function useStablecoinCollateralizationRatio(stablecoinSymbol, options = 
     queryFn: async () => {
       if (!stablecoinSymbol) return { data: 0, _unavailable: true };
       
+      // Try to fetch manual data first
+      try {
+        const response = await api.get(`/manual-data/${stablecoinSymbol}/collateralizationRatio`);
+        if (response.data.success && response.data.data !== null) {
+          return { 
+            data: response.data.data,
+            source: 'manual_entry',
+            lastUpdated: response.data.metadata.lastUpdated,
+            updatedBy: response.data.metadata.updatedBy
+          };
+        }
+      } catch (error) {
+        console.log('No manual CR data, trying auto-fetch');
+      }
+      
+      // Fallback to auto-fetch endpoint
       try {
         const response = await api.get(`/stablecoin/collateralization-ratio/${stablecoinSymbol.toLowerCase()}`);
         return response.data;
@@ -508,8 +544,8 @@ export function useStablecoinCollateralizationRatio(stablecoinSymbol, options = 
       }
     },
     enabled: !!stablecoinSymbol && (options.enabled !== false),
-    staleTime: 15 * 60 * 1000,
-    cacheTime: 60 * 60 * 1000,
+    staleTime: 2 * 60 * 1000, // 2 minutes - shorter for manual data
+    cacheTime: 10 * 60 * 1000,
     retry: 1,
     ...options
   });
@@ -877,8 +913,12 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     },
     
     supplyOnMainnetPercent: {
-      data: totalSupply.data?.data > 0 ? (mainnetSupply.data?.data || 0) / totalSupply.data.data : 0,
-      isLoading: totalSupply.isLoading || mainnetSupply.isLoading
+      // Formula: 1 - (Bridge Supply / Mainnet Supply)
+      // Shows what % of mainnet supply is actually ON mainnet (not bridged to other chains)
+      data: mainnetSupply.data?.data > 0 
+        ? 1 - ((bridgeSupply.data?.data || 0) / mainnetSupply.data.data)
+        : 0,
+      isLoading: mainnetSupply.isLoading || bridgeSupply.isLoading
     }
   };
 }
