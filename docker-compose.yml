@@ -37,7 +37,7 @@ services:
       - redis
     environment:
       - NODE_ENV=production
-      - PORT=${PORT}
+      - PORT=4000
       - REDIS_URL=redis://redis:6379
       # API Keys (hidden from frontend)
       - COINGECKO_API_KEY=${COINGECKO_API_KEY}
@@ -58,7 +58,6 @@ services:
       - MORPHO_AAVE_V2_MAINNET=${MORPHO_AAVE_V2_MAINNET}
       - MORPHO_AAVE_V3_MAINNET=${MORPHO_AAVE_V3_MAINNET}
       - EULER_MAINNET=${EULER_MAINNET}
-      - OPERATOR_API_KEY=${OPERATOR_API_KEY}
 
     restart: unless-stopped
 

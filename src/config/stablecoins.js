@@ -31,11 +31,11 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://app.sky.money/", // URL where operator can find bridge supply data
+        dataUrl: "https://info.sky.money/multichain", // URL where operator can find bridge supply data
         description: "Check Sky Money app for cross-chain supply"
       },
       collateralizationRatio: {
-        dataUrl: "https://daistats.com/", // URL where operator can find CR data
+        dataUrl: "https://info.sky.money/collateral", // URL where operator can find CR data
         description: "DAI Stats dashboard for collateralization ratio"
       }
     },
@@ -72,7 +72,7 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://ethena.fi/",
+        dataUrl: "https://layerzeroscan.com/oft/USDe/Ethena",
         description: "Check Ethena app for cross-chain supply"
       },
       collateralizationRatio: {
@@ -101,11 +101,11 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://app.resolv.xyz/",
+        dataUrl: "https://layerzeroscan.com/oft/USR/Resolv%20Labs",
         description: "Check Resolv app for cross-chain supply"
       },
       collateralizationRatio: {
-        dataUrl: "https://app.resolv.xyz/",
+        dataUrl: "https://app.resolv.xyz/collateral-pool",
         description: "Resolv app dashboard"
       }
     },
@@ -140,11 +140,11 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://elixir.xyz/",
+        dataUrl: "https://snowtrace.io/token/0xB57B25851fE2311CC3fE511c8F10E868932e0680?type=erc20&chainid=43114",
         description: "Check Elixir platform for cross-chain supply"
       },
       collateralizationRatio: {
-        dataUrl: "https://elixir.xyz/",
+        dataUrl: "https://www.elixir.xyz/deusd/dashboard",
         description: "Elixir dashboard for collateralization data"
       }
     },
@@ -179,11 +179,11 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://classic.curve.fi/",
+        dataUrl: "https://layerzeroscan.com/oft/crvUSD/Curve%20Finance",
         description: "Check Curve Finance for cross-chain crvUSD supply"
       },
       collateralizationRatio: {
-        dataUrl: "https://crvusd.curve.fi/#/ethereum/markets",
+        dataUrl: "https://curvemonitor.com/platform/crvusd",
         description: "crvUSD markets dashboard"
       }
     },
@@ -218,11 +218,11 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://www.openeden.com/",
+        dataUrl: "https://docs.chain.link/ccip/directory/mainnet/token/USDO",
         description: "Check OpenEden for cross-chain supply data"
       },
       collateralizationRatio: {
-        dataUrl: "https://www.openeden.com/",
+        dataUrl: "https://openeden.com/usdo/transparency",
         description: "OpenEden transparency page"
       }
     },
@@ -256,11 +256,11 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://fx.aladdin.club/",
+        dataUrl: "No bridged supply",
         description: "Check f(x) Protocol for cross-chain supply"
       },
       collateralizationRatio: {
-        dataUrl: "https://fx.aladdin.club/",
+        dataUrl: "https://fx.aladdin.club/v2/statistics/",
         description: "f(x) Protocol dashboard"
       }
     },
@@ -297,11 +297,11 @@ export const stablecoins = [
     },
     manualDataSources: {
       bridgeSupply: {
-        dataUrl: "https://reserve.org/",
+        dataUrl: "No bridged supply",
         description: "Check Reserve Protocol for cross-chain reUSD supply"
       },
       collateralizationRatio: {
-        dataUrl: "https://reserve.org/",
+        dataUrl: "https://hippo.army/",
         description: "Reserve Protocol dashboard for collateralization data"
       }
     },
