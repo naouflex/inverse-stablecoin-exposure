@@ -239,20 +239,13 @@ export const stablecoins = [
     stakedContractAddress: "0x7743e50f534a7f9f1791dde7dcd89f7783eefc39",
     insuranceFund: {
       monitoredAddresses: [
+        "0x65c9a641afceb9c0e6034e558a319488fa0fa3be"
       ],
       tokensToMonitor: [
+        "0x085780639cc2cacd35e474e71f4d000e2405d8f6", // fxUSD
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"  // USDC
       ],
-      lpTokensToMonitor: [
-        {
-          lpTokenAddress: "", // sDAI/USDS Curve LP
-          poolAddress: "",
-          underlyingTokens: [
-            "",
-            "" 
-          ],
-          protocol: "curve"
-        }
-      ]
+      lpTokensToMonitor: []
     },
     manualDataSources: {
       bridgeSupply: {

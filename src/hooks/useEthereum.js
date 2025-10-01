@@ -68,11 +68,13 @@ export function useTokenBalanceWithUSD(tokenAddress, holderAddress, options = {}
   return useQuery({
     queryKey: ['ethereum', 'tokenBalanceUSD', tokenAddress?.toLowerCase(), holderAddress?.toLowerCase()],
     queryFn: () => getTokenBalanceWithUSD(tokenAddress, holderAddress),
-    enabled: !!tokenAddress && !!holderAddress,
-    staleTime: 1 * 60 * 1000, // 1 minute (prices change)
-    cacheTime: 3 * 60 * 1000, // 3 minutes
-    retry: 2,
-    retryDelay: 1000,
+    enabled: !!tokenAddress && !!holderAddress && (options.enabled !== false),
+    staleTime: 30 * 60 * 1000, // 30 minutes - consistent with stablecoin hooks
+    cacheTime: 2 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -87,11 +89,13 @@ export function useTokenDecimals(tokenAddress, options = {}) {
   return useQuery({
     queryKey: ['ethereum', 'tokenDecimals', tokenAddress?.toLowerCase()],
     queryFn: () => getTokenDecimals(tokenAddress),
-    enabled: !!tokenAddress,
-    staleTime: 60 * 60 * 1000, // 1 hour (decimals don't change)
+    enabled: !!tokenAddress && (options.enabled !== false),
+    staleTime: 2 * 60 * 60 * 1000, // 2 hours (decimals never change)
     cacheTime: 24 * 60 * 60 * 1000, // 24 hours
-    retry: 2,
-    retryDelay: 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -144,11 +148,13 @@ export function useTokenTotalSupply(tokenAddress, options = {}) {
   return useQuery({
     queryKey: ['ethereum', 'tokenTotalSupply', tokenAddress?.toLowerCase()],
     queryFn: () => getTotalSupply(tokenAddress),
-    enabled: !!tokenAddress,
-    staleTime: 10 * 60 * 1000, // 10 minutes
-    cacheTime: 30 * 60 * 1000, // 30 minutes
-    retry: 2,
-    retryDelay: 1000,
+    enabled: !!tokenAddress && (options.enabled !== false),
+    staleTime: 30 * 60 * 1000, // 30 minutes - consistent with stablecoin hooks
+    cacheTime: 2 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -298,11 +304,13 @@ export function useMultipleTokenBalancesWithUSD(tokenAddresses, holderAddress, o
       const results = await Promise.all(promises);
       return results.reduce((acc, result) => ({ ...acc, ...result }), {});
     },
-    enabled: !!tokenAddresses && !!holderAddress && tokenAddresses.length > 0,
-    staleTime: 1 * 60 * 1000, // 1 minute
-    cacheTime: 3 * 60 * 1000, // 3 minutes
-    retry: 2,
-    retryDelay: 1000,
+    enabled: !!tokenAddresses && !!holderAddress && tokenAddresses.length > 0 && (options.enabled !== false),
+    staleTime: 30 * 60 * 1000, // 30 minutes - consistent with stablecoin hooks
+    cacheTime: 2 * 60 * 60 * 1000, // 2 hours
+    retry: 0, // No retries
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }

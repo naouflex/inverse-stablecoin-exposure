@@ -2,7 +2,7 @@
 // Hooks for fetching stablecoin-specific data from various sources
 
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { useTokenTotalSupply, useTokenDecimals, useMultipleTokenBalancesWithUSD } from './useEthereum.js';
 import { formatTokenAmount, getLPTokenValueUSD, fetchFDV } from '../services/cache-client.js';
@@ -10,7 +10,7 @@ import { formatTokenAmount, getLPTokenValueUSD, fetchFDV } from '../services/cac
 // Create axios instance for API calls
 const api = axios.create({
   baseURL: '/api',
-  timeout: 60000, // Increased from 40s to 60s for stablecoin metrics with many parallel requests
+  timeout: 90000, // Increased to 90s - stablecoin metrics need more time with conservative loading
 });
 
 // ================= SUPPLY METRICS =================
@@ -53,10 +53,12 @@ export function useStablecoinTotalSupply(coingeckoIds, options = {}) {
       }
     },
     enabled: !!coingeckoIds && coingeckoIds.length > 0 && (options.enabled !== false),
-    staleTime: 10 * 60 * 1000, // Increased from 5 to 10 minutes - reduce requests
-    cacheTime: 60 * 60 * 1000, // Increased from 30 to 60 minutes
-    retry: 1, // Reduced from 2 to 1 - fail faster to avoid timeouts
-    retryDelay: 1000, // Add 1s delay between retries
+    staleTime: 30 * 60 * 1000, // 30 minutes - prevent unnecessary refetches
+    cacheTime: 2 * 60 * 60 * 1000, // 2 hours - keep data cached longer
+    retry: 0, // No retries - if it fails, rely on stale data or next load
+    refetchOnWindowFocus: false, // Don't refetch when window regains focus
+    refetchOnReconnect: false, // Don't refetch on network reconnect
+    refetchOnMount: false, // Don't refetch on component mount if data exists
     ...options
   });
 }
@@ -99,10 +101,12 @@ export function useStablecoinMainnetSupply(coingeckoIds, options = {}) {
       }
     },
     enabled: !!coingeckoIds && coingeckoIds.length > 0 && (options.enabled !== false),
-    staleTime: 10 * 60 * 1000, // Increased from 5 to 10 minutes
-    cacheTime: 60 * 60 * 1000, // Increased from 30 to 60 minutes
-    retry: 1, // Reduced from 2 to 1
-    retryDelay: 1000,
+    staleTime: 30 * 60 * 1000, // 30 minutes
+    cacheTime: 2 * 60 * 60 * 1000, // 2 hours
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -137,9 +141,12 @@ export function useStablecoinBridgeSupply(stablecoinSymbol, options = {}) {
       return { data: 0, _unavailable: true, _placeholder: true };
     },
     enabled: !!stablecoinSymbol && (options.enabled !== false),
-    staleTime: 2 * 60 * 1000, // 2 minutes - shorter for manual data
-    cacheTime: 10 * 60 * 1000,
-    retry: 2,
+    staleTime: 30 * 60 * 1000, // 30 minutes
+    cacheTime: 2 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -182,9 +189,12 @@ export function useStablecoinStakedSupplyFromCoinGecko(stakedCoingeckoIds, optio
       }
     },
     enabled: !!stakedCoingeckoIds && stakedCoingeckoIds.length > 0 && (options.enabled !== false),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    cacheTime: 30 * 60 * 1000, // 30 minutes
-    retry: 2,
+    staleTime: 30 * 60 * 1000,
+    cacheTime: 2 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -214,10 +224,12 @@ export function useAaveCollateralUsage(contractAddress, options = {}) {
       }
     },
     enabled: !!contractAddress && (options.enabled !== false),
-    staleTime: 15 * 60 * 1000,
-    cacheTime: 60 * 60 * 1000,
-    retry: 1,
-    retryDelay: 1000,
+    staleTime: 30 * 60 * 1000, // 30 minutes
+    cacheTime: 2 * 60 * 60 * 1000, // 2 hours
+    retry: 0, // No retries
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -357,66 +369,89 @@ export function useTotalLendingMarketUsage(contractAddress, options = {}) {
 
 /**
  * Hook to fetch insurance fund data by monitoring token balances at specific addresses
+ * FIXED: Hooks can't be called inside useMemo - moved to top level
  */
 export function useStablecoinInsuranceFundFromBalances(insuranceFundConfig, options = {}) {
-  // Create queries for regular tokens
-  const regularTokenQueries = useMemo(() => {
-    if (!insuranceFundConfig?.monitoredAddresses || !insuranceFundConfig?.tokensToMonitor) {
-      return [];
-    }
-    
-    return insuranceFundConfig.monitoredAddresses.map(address => 
-      useMultipleTokenBalancesWithUSD(insuranceFundConfig.tokensToMonitor, address, options)
-    );
-  }, [insuranceFundConfig?.monitoredAddresses, insuranceFundConfig?.tokensToMonitor, options]);
+  // Check if we have valid config
+  const hasConfig = !!(insuranceFundConfig?.monitoredAddresses?.length > 0);
+  const hasTokens = !!(insuranceFundConfig?.tokensToMonitor?.length > 0);
+  const hasLPTokens = !!(insuranceFundConfig?.lpTokensToMonitor?.length > 0);
+  
+  // Query regular token balances (only call hooks at top level)
+  // NOTE: We conditionally enable based on config, but always call the hooks
+  const regularTokenQueries = (insuranceFundConfig?.monitoredAddresses || []).map((address, index) => 
+    useMultipleTokenBalancesWithUSD(
+      insuranceFundConfig?.tokensToMonitor || [], 
+      address, 
+      { 
+        ...options, 
+        enabled: hasConfig && hasTokens && (options.enabled !== false)
+      }
+    )
+  );
 
-  // Create queries for LP tokens
-  const lpTokenQueries = useMemo(() => {
-    if (!insuranceFundConfig?.monitoredAddresses || !insuranceFundConfig?.lpTokensToMonitor) {
-      return [];
-    }
-
-    const queries = [];
+  // Create LP token queries - must call at top level, can't be in useMemo
+  // Generate a stable list of LP queries
+  const lpTokenQueryConfigs = useMemo(() => {
+    if (!hasConfig || !hasLPTokens) return [];
     
+    const configs = [];
     insuranceFundConfig.monitoredAddresses.forEach(address => {
-      insuranceFundConfig.lpTokensToMonitor.forEach(lpConfig => {
-        const queryKey = ['lp-token-value', lpConfig.lpTokenAddress, address, lpConfig.poolAddress];
-        
-        const lpQuery = useQuery({
-          queryKey,
-          queryFn: async () => {
-            return await getLPTokenValueUSD(
-              lpConfig.lpTokenAddress,
-              address,
-              lpConfig.poolAddress,
-              lpConfig.underlyingTokens,
-              lpConfig.protocol
-            );
-          },
-          enabled: !!(lpConfig.lpTokenAddress && address && lpConfig.poolAddress),
-          staleTime: 2 * 60 * 1000, // 2 minutes
-          cacheTime: 5 * 60 * 1000, // 5 minutes
-          retry: 2,
-          ...options
-        });
-
-        queries.push({
-          query: lpQuery,
-          address,
-          lpConfig
-        });
+      (insuranceFundConfig.lpTokensToMonitor || []).forEach(lpConfig => {
+        // Only add valid configs
+        if (lpConfig.lpTokenAddress && lpConfig.poolAddress) {
+          configs.push({
+            lpTokenAddress: lpConfig.lpTokenAddress,
+            poolAddress: lpConfig.poolAddress,
+            underlyingTokens: lpConfig.underlyingTokens,
+            protocol: lpConfig.protocol,
+            address
+          });
+        }
       });
     });
+    return configs;
+  }, [insuranceFundConfig, hasConfig, hasLPTokens]);
+  
+  // Call hooks for each LP config at top level
+  const lpTokenQueries = lpTokenQueryConfigs.map(config => {
+    const queryKey = ['lp-token-value', config.lpTokenAddress, config.address, config.poolAddress];
+    
+    const lpQuery = useQuery({
+      queryKey,
+      queryFn: async () => {
+        return await getLPTokenValueUSD(
+          config.lpTokenAddress,
+          config.address,
+          config.poolAddress,
+          config.underlyingTokens,
+          config.protocol
+        );
+      },
+      enabled: hasConfig && hasLPTokens && (options.enabled !== false),
+      staleTime: 30 * 60 * 1000,
+      cacheTime: 2 * 60 * 60 * 1000,
+      retry: 0,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: false
+    });
 
-    return queries;
-  }, [insuranceFundConfig?.monitoredAddresses, insuranceFundConfig?.lpTokensToMonitor, options]);
+    return {
+      query: lpQuery,
+      address: config.address,
+      lpConfig: config
+    };
+  });
 
   // Aggregate the results
   const aggregatedData = useMemo(() => {
-    const hasRegularTokens = regularTokenQueries.length > 0;
-    const hasLPTokens = lpTokenQueries.length > 0;
+    const hasRegularTokens = regularTokenQueries.length > 0 && hasTokens;
+    const hasLPTokensData = lpTokenQueries.length > 0 && hasLPTokens;
 
-    if (!hasRegularTokens && !hasLPTokens) {
+    // If no queries, return unavailable
+    if (!hasRegularTokens && !hasLPTokensData) {
+      console.log('Insurance fund: No queries configured');
       return {
         data: 0,
         _unavailable: true,
@@ -424,11 +459,13 @@ export function useStablecoinInsuranceFundFromBalances(insuranceFundConfig, opti
       };
     }
 
-    const regularTokensLoading = regularTokenQueries.some(query => query.isLoading);
-    const lpTokensLoading = lpTokenQueries.some(item => item.query.isLoading);
+    // Check loading status
+    const regularTokensLoading = hasRegularTokens && regularTokenQueries.some(query => query.isLoading);
+    const lpTokensLoading = hasLPTokensData && lpTokenQueries.some(item => item.query.isLoading);
     const isLoading = regularTokensLoading || lpTokensLoading;
     
     if (isLoading) {
+      console.log('Insurance fund: Loading...', { regularTokensLoading, lpTokensLoading });
       return {
         data: 0,
         isLoading: true
@@ -439,47 +476,67 @@ export function useStablecoinInsuranceFundFromBalances(insuranceFundConfig, opti
     const breakdown = {};
 
     // Process regular token balances
-    regularTokenQueries.forEach((query, addressIndex) => {
-      const address = insuranceFundConfig.monitoredAddresses[addressIndex];
-      if (!breakdown[address]) breakdown[address] = { tokens: {}, lpTokens: {} };
-      
-      if (query.data) {
-        Object.entries(query.data).forEach(([tokenAddress, tokenData]) => {
-          const usdValue = tokenData.balanceUSD || 0;
-          totalUSDValue += usdValue;
-          breakdown[address].tokens[tokenAddress] = {
-            balance: tokenData.balance || 0,
-            balanceUSD: usdValue,
-            price: tokenData.price || 0,
-            type: 'token'
-          };
-        });
-      }
-    });
+    if (hasRegularTokens) {
+      regularTokenQueries.forEach((query, addressIndex) => {
+        const address = insuranceFundConfig.monitoredAddresses?.[addressIndex];
+        if (!address) return;
+        
+        if (!breakdown[address]) breakdown[address] = { tokens: {}, lpTokens: {} };
+        
+        if (query.data && !query.error) {
+          Object.entries(query.data).forEach(([tokenAddress, tokenData]) => {
+            const usdValue = tokenData?.balanceUSD || 0;
+            if (usdValue > 0) {
+              totalUSDValue += usdValue;
+              breakdown[address].tokens[tokenAddress] = {
+                balance: tokenData.balance || 0,
+                balanceUSD: usdValue,
+                price: tokenData.price || 0,
+                type: 'token'
+              };
+              console.log(`Insurance fund token: ${tokenAddress} = $${usdValue.toFixed(2)}`);
+            }
+          });
+        } else if (query.error) {
+          console.warn(`Insurance fund token query error for ${address}:`, query.error);
+        }
+      });
+    }
 
     // Process LP token balances
-    lpTokenQueries.forEach(({ query, address, lpConfig }) => {
-      if (!breakdown[address]) breakdown[address] = { tokens: {}, lpTokens: {} };
-      
-      if (query.data && query.data.lpBalanceUSD > 0) {
-        totalUSDValue += query.data.lpBalanceUSD;
-        breakdown[address].lpTokens[lpConfig.lpTokenAddress] = {
-          ...query.data,
-          type: 'lp_token',
-          protocol: lpConfig.protocol,
-          poolAddress: lpConfig.poolAddress,
-          underlyingTokens: lpConfig.underlyingTokens
-        };
-      }
-    });
+    if (hasLPTokensData) {
+      lpTokenQueries.forEach(({ query, address, lpConfig }) => {
+        if (!breakdown[address]) breakdown[address] = { tokens: {}, lpTokens: {} };
+        
+        if (query.data && !query.error && query.data.lpBalanceUSD > 0) {
+          totalUSDValue += query.data.lpBalanceUSD;
+          breakdown[address].lpTokens[lpConfig.lpTokenAddress] = {
+            ...query.data,
+            type: 'lp_token',
+            protocol: lpConfig.protocol,
+            poolAddress: lpConfig.poolAddress,
+            underlyingTokens: lpConfig.underlyingTokens
+          };
+          console.log(`Insurance fund LP: ${lpConfig.lpTokenAddress} = $${query.data.lpBalanceUSD.toFixed(2)}`);
+        } else if (query.error) {
+          console.warn(`Insurance fund LP query error:`, query.error);
+        }
+      });
+    }
 
+    console.log(`Insurance fund total: $${totalUSDValue.toFixed(2)}`);
+    
     return {
       data: totalUSDValue,
       isLoading: false,
       breakdown,
-      source: 'blockchain_balances_with_lp'
+      source: 'blockchain_balances_with_lp',
+      queriesExecuted: {
+        regularTokens: hasRegularTokens ? regularTokenQueries.length : 0,
+        lpTokens: hasLPTokensData ? lpTokenQueries.length : 0
+      }
     };
-  }, [regularTokenQueries, lpTokenQueries, insuranceFundConfig]);
+  }, [regularTokenQueries, lpTokenQueries, insuranceFundConfig, hasTokens, hasLPTokens]);
 
   return aggregatedData;
 }
@@ -504,7 +561,10 @@ export function useStablecoinInsuranceFund(stablecoinSymbol, options = {}) {
     enabled: !!stablecoinSymbol && (options.enabled !== false),
     staleTime: 30 * 60 * 1000,
     cacheTime: 2 * 60 * 60 * 1000,
-    retry: 1,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -544,9 +604,12 @@ export function useStablecoinCollateralizationRatio(stablecoinSymbol, options = 
       }
     },
     enabled: !!stablecoinSymbol && (options.enabled !== false),
-    staleTime: 2 * 60 * 1000, // 2 minutes - shorter for manual data
-    cacheTime: 10 * 60 * 1000,
-    retry: 1,
+    staleTime: 30 * 60 * 1000,
+    cacheTime: 2 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -579,9 +642,12 @@ export function useStablecoinFDVFromCoinGecko(coingeckoId, options = {}) {
       }
     },
     enabled: !!coingeckoId && (options.enabled !== false),
-    staleTime: 10 * 60 * 1000, // 10 minutes
-    cacheTime: 30 * 60 * 1000, // 30 minutes
-    retry: 2,
+    staleTime: 30 * 60 * 1000,
+    cacheTime: 2 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -616,9 +682,12 @@ export function useStablecoinStakedSupply(contractAddress, stakingContracts = []
       }
     },
     enabled: !!contractAddress && stakingContracts.length > 0 && (options.enabled !== false),
-    staleTime: 15 * 60 * 1000,
-    cacheTime: 60 * 60 * 1000,
-    retry: 1,
+    staleTime: 30 * 60 * 1000,
+    cacheTime: 2 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -627,13 +696,42 @@ export function useStablecoinStakedSupply(contractAddress, stakingContracts = []
 
 /**
  * Hook to fetch all metrics for a single stablecoin using existing well-tested hooks
+ * Uses staggered loading to prevent overwhelming the request queue
  */
 export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   const contractAddress = stablecoin.contractAddresses?.[Object.keys(stablecoin.contractAddresses)[0]];
   const coingeckoIds = stablecoin.coingeckoIds;
   const contractAddresses = stablecoin.contractAddresses;
   
-  // Use existing CoinGecko hooks for supply data
+  // Staggered loading: delay different metric groups to smooth out request bursts
+  const [enableDEX, setEnableDEX] = useState(false);
+  const [enableLending, setEnableLending] = useState(false);
+  const [enableSafety, setEnableSafety] = useState(false);
+  
+  useEffect(() => {
+    if (options.enabled !== false) {
+      // Group 1: Supply metrics (CoinGecko) - load immediately
+      // Already enabled by default
+      
+      // Group 2: DEX metrics - increased from 150ms to 800ms to prevent rate limiting
+      const dexTimer = setTimeout(() => setEnableDEX(true), 800);
+      
+      // Group 3: Lending metrics - increased from 300ms to 1800ms (DEX + 1000ms)
+      // Lending queries are most complex (5 subgraphs), need more time
+      const lendingTimer = setTimeout(() => setEnableLending(true), 1800);
+      
+      // Group 4: Safety buffer metrics - increased from 450ms to 2800ms (Lending + 1000ms)
+      const safetyTimer = setTimeout(() => setEnableSafety(true), 2800);
+      
+      return () => {
+        clearTimeout(dexTimer);
+        clearTimeout(lendingTimer);
+        clearTimeout(safetyTimer);
+      };
+    }
+  }, [options.enabled]);
+  
+  // Use existing CoinGecko hooks for supply data (Group 1 - immediate)
   const coinGeckoDataQueries = coingeckoIds.map(coinId => 
     useCoinGeckoMarketData(coinId, options)
   );
@@ -675,14 +773,14 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   
   const bridgeSupply = useStablecoinBridgeSupply(stablecoin.symbol, options);
   
-  // DEX liquidity - use existing hooks for primary contract, then add others if needed
+  // DEX liquidity - Group 2 (staggered loading)
   const primaryContractAddress = contractAddress; // First contract address
   
-  // Use existing hooks exactly like the original dashboard
-  const curveTVL = useCurveTVL(primaryContractAddress, options);
-  const balancerTVL = useBalancerTVL(primaryContractAddress, options);  
-  const uniswapTVL = useUniswapTotalTVL(primaryContractAddress, options);
-  const sushiTVL = useSushiTotalTVL(primaryContractAddress, options);
+  // Use existing hooks with staggered loading flag
+  const curveTVL = useCurveTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  const balancerTVL = useBalancerTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });  
+  const uniswapTVL = useUniswapTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  const sushiTVL = useSushiTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
   
   // For multi-token stablecoins (like USDS+DAI), add additional contract addresses
   const additionalContracts = Object.entries(contractAddresses).filter(([key, addr]) => addr !== primaryContractAddress);
@@ -690,38 +788,38 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   const additionalCurveTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
     useCurveTVL(contractAddress, {
       ...options,
-      enabled: contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
+      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   );
   
   const additionalBalancerTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
     useBalancerTVL(contractAddress, {
       ...options,
-      enabled: contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
+      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   );
   
   const additionalUniswapTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
     useUniswapTotalTVL(contractAddress, {
       ...options,
-      enabled: contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
+      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   );
   
   const additionalSushiTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
     useSushiTotalTVL(contractAddress, {
       ...options,
-      enabled: contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
+      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   );
   
-  // Lending markets - combine data from all contract addresses
+  // Lending markets - Group 3 (staggered loading)
   const lendingQueries = Object.entries(contractAddresses).map(([tokenKey, contractAddress]) => ({
     tokenKey,
     contractAddress,
     query: useTotalLendingMarketUsage(contractAddress, {
       ...options,
-      enabled: contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
+      enabled: enableLending && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   }));
   
@@ -752,14 +850,20 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     };
   }, [lendingQueries]);
   
-  // Safety metrics
-  const insuranceFundFromBalances = useStablecoinInsuranceFundFromBalances(stablecoin.insuranceFund, options);
-  const insuranceFundFromAPI = useStablecoinInsuranceFund(stablecoin.symbol, options);
+  // Safety metrics - Group 4 (staggered loading)
+  const insuranceFundFromBalances = useStablecoinInsuranceFundFromBalances(
+    stablecoin.insuranceFund, 
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
+  );
+  const insuranceFundFromAPI = useStablecoinInsuranceFund(
+    stablecoin.symbol, 
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
+  );
   
   // For Resolv, fetch FDV from CoinGecko
   const insuranceFundFromFDV = useStablecoinFDVFromCoinGecko(
     stablecoin.insuranceFund?.type === 'fdv' ? stablecoin.insuranceFund.rlpCoingeckoId : null,
-    options
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
   );
   
   // Choose the appropriate insurance fund data source based on configuration
@@ -798,22 +902,32 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     return insuranceFundFromAPI;
   }, [stablecoin.insuranceFund, insuranceFundFromBalances, insuranceFundFromAPI, insuranceFundFromFDV]);
   
-  const collateralizationRatio = useStablecoinCollateralizationRatio(stablecoin.symbol, options);
+  const collateralizationRatio = useStablecoinCollateralizationRatio(
+    stablecoin.symbol, 
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
+  );
   
   // Use different approaches for staked supply based on the stablecoin
-  const stakedSupplyFromCoinGecko = useStablecoinStakedSupplyFromCoinGecko(stablecoin.stakedCoingeckoIds, options);
-  const stakedSupplyFromContract = useStablecoinStakedSupply(contractAddress, [], options);
+  const stakedSupplyFromCoinGecko = useStablecoinStakedSupplyFromCoinGecko(
+    stablecoin.stakedCoingeckoIds, 
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
+  );
+  const stakedSupplyFromContract = useStablecoinStakedSupply(
+    contractAddress, 
+    [], 
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
+  );
   
   // For reUSD, use blockchain total supply directly from the staked contract
   const stakedSupplyFromBlockchain = useTokenTotalSupply(
     stablecoin.symbol === 'reUSD' ? stablecoin.stakedContractAddress : null,
-    options
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
   );
   
   // Fetch decimals for reUSD staked contract to properly format the amount
   const stakedContractDecimals = useTokenDecimals(
     stablecoin.symbol === 'reUSD' ? stablecoin.stakedContractAddress : null,
-    options
+    { ...options, enabled: enableSafety && (options.enabled !== false) }
   );
   
   // Choose the appropriate data source based on the stablecoin

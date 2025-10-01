@@ -330,8 +330,9 @@ export default function StablecoinDashboard() {
       for (let i = 0; i < stablecoins.length; i++) {
         setLoadedStablecoins(prev => new Set([...prev, i]));
         if (i < stablecoins.length - 1) {
-          // Increased from 200ms to 500ms - give queue more time to process requests
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Increased from 500ms to 3500ms to allow each stablecoin's staggered groups to complete
+          // Each stablecoin takes ~2800ms to load all groups, so 3500ms ensures no overlap
+          await new Promise(resolve => setTimeout(resolve, 3500));
         }
       }
     };

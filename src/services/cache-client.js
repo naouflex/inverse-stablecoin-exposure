@@ -8,7 +8,7 @@ const CACHE_API_BASE = '/api'; // Proxied to cache service via Nginx
 // Create axios instance for cache service
 const cacheApi = axios.create({
   baseURL: CACHE_API_BASE,
-  timeout: 55000, // Increased from 35s to 55s for stablecoin metrics with high request volume
+  timeout: 90000, // 90s timeout - matches frontend timeout, gives staggered loading time to complete
 });
 
 // Add request/response interceptors for debugging
