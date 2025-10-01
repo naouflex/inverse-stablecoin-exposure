@@ -251,34 +251,60 @@ export default function OperatorDataEntry({ isOpen, onClose, initialStablecoin =
                   >
                     <Text fontWeight="bold" mb={2}>Data Sources:</Text>
                     
-                    {selectedStablecoin.manualDataSources.bridgeSupply && (
-                      <HStack mb={1}>
-                        <Text fontSize="sm">Bridge Supply:</Text>
-                        <Link
-                          href={selectedStablecoin.manualDataSources.bridgeSupply.dataUrl}
-                          isExternal
-                          color="blue.400"
-                          fontSize="sm"
-                          _hover={{ color: 'blue.300' }}
-                        >
-                          {selectedStablecoin.manualDataSources.bridgeSupply.dataUrl} <ExternalLinkIcon mx="2px" />
-                        </Link>
-                      </HStack>
+                    {/* Bridge Supply Sources */}
+                    {selectedStablecoin.manualDataSources.bridgeSupply && 
+                     selectedStablecoin.manualDataSources.bridgeSupply.length > 0 && (
+                      <Box mb={3}>
+                        <Text fontSize="sm" fontWeight="semibold" mb={1}>Bridge Supply:</Text>
+                        <VStack align="stretch" spacing={1} pl={2}>
+                          {selectedStablecoin.manualDataSources.bridgeSupply.map((source, index) => (
+                            <HStack key={index} spacing={2}>
+                              <Text fontSize="sm" color="gray.600">•</Text>
+                              <Link
+                                href={source.url}
+                                isExternal
+                                color="blue.500"
+                                fontSize="sm"
+                                _hover={{ color: 'blue.400', textDecoration: 'underline' }}
+                              >
+                                {source.description} <ExternalLinkIcon mx="2px" />
+                              </Link>
+                            </HStack>
+                          ))}
+                        </VStack>
+                      </Box>
                     )}
                     
-                    {selectedStablecoin.manualDataSources.collateralizationRatio && (
-                      <HStack>
-                        <Text fontSize="sm">CR:</Text>
-                        <Link
-                          href={selectedStablecoin.manualDataSources.collateralizationRatio.dataUrl}
-                          isExternal
-                          color="blue.400"
-                          fontSize="sm"
-                          _hover={{ color: 'blue.300' }}
-                        >
-                          {selectedStablecoin.manualDataSources.collateralizationRatio.dataUrl} <ExternalLinkIcon mx="2px" />
-                        </Link>
-                      </HStack>
+                    {/* Collateralization Ratio Sources */}
+                    {selectedStablecoin.manualDataSources.collateralizationRatio && 
+                     selectedStablecoin.manualDataSources.collateralizationRatio.length > 0 && (
+                      <Box>
+                        <Text fontSize="sm" fontWeight="semibold" mb={1}>Collateralization Ratio:</Text>
+                        <VStack align="stretch" spacing={1} pl={2}>
+                          {selectedStablecoin.manualDataSources.collateralizationRatio.map((source, index) => (
+                            <HStack key={index} spacing={2}>
+                              <Text fontSize="sm" color="gray.600">•</Text>
+                              <Link
+                                href={source.url}
+                                isExternal
+                                color="blue.500"
+                                fontSize="sm"
+                                _hover={{ color: 'blue.400', textDecoration: 'underline' }}
+                              >
+                                {source.description} <ExternalLinkIcon mx="2px" />
+                              </Link>
+                            </HStack>
+                          ))}
+                        </VStack>
+                      </Box>
+                    )}
+                    
+                    {/* Show message if no sources are available */}
+                    {(!selectedStablecoin.manualDataSources.bridgeSupply || selectedStablecoin.manualDataSources.bridgeSupply.length === 0) &&
+                     (!selectedStablecoin.manualDataSources.collateralizationRatio || selectedStablecoin.manualDataSources.collateralizationRatio.length === 0) && (
+                      <Text fontSize="sm" color="gray.500" fontStyle="italic">
+                        No data sources configured for this stablecoin
+                      </Text>
                     )}
                   </Box>
                 )}

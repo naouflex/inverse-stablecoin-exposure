@@ -30,14 +30,18 @@ export const stablecoins = [
       ]
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "https://info.sky.money/multichain", // URL where operator can find bridge supply data
-        description: "Check Sky Money app for cross-chain supply"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://info.sky.money/collateral", // URL where operator can find CR data
-        description: "DAI Stats dashboard for collateralization ratio"
-      }
+      bridgeSupply: [
+        {
+          url: "https://info.sky.money/multichain",
+          description: "Sky Money app for cross-chain supply"
+        }
+      ],
+      collateralizationRatio: [
+        {
+          url: "https://info.sky.money/collateral",
+          description: "DAI Stats dashboard for collateralization ratio"
+        }
+      ]
     },
     category: "sky"
   },
@@ -71,14 +75,22 @@ export const stablecoins = [
       ]
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "https://layerzeroscan.com/oft/USDe/Ethena",
-        description: "Check Ethena app for cross-chain supply"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://app.ethena.fi/dashboards/transparency",
-        description: "Ethena transparency dashboard"
-      }
+      bridgeSupply: [
+        {
+          url: "https://layerzeroscan.com/oft/USDe/Ethena",
+          description: "LayerZero scan for USDe cross-chain supply"
+        },
+        {
+          url: "https://app.ethena.fi/",
+          description: "Ethena app"
+        }
+      ],
+      collateralizationRatio: [
+        {
+          url: "https://app.ethena.fi/dashboards/transparency",
+          description: "Ethena transparency dashboard"
+        }
+      ]
     },
     category: "ethena"
   },
@@ -100,14 +112,18 @@ export const stablecoins = [
       lpTokensToMonitor: []
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "https://layerzeroscan.com/oft/USR/Resolv%20Labs",
-        description: "Check Resolv app for cross-chain supply"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://app.resolv.xyz/collateral-pool",
-        description: "Resolv app dashboard"
-      }
+      bridgeSupply: [
+        {
+          url: "https://layerzeroscan.com/oft/USR/Resolv%20Labs",
+          description: "LayerZero scan for USR cross-chain supply"
+        }
+      ],
+      collateralizationRatio: [
+        {
+          url: "https://app.resolv.xyz/collateral-pool",
+          description: "Resolv app collateral pool dashboard"
+        }
+      ]
     },
     category: "resolv"
   },
@@ -139,14 +155,18 @@ export const stablecoins = [
       ]
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "https://snowtrace.io/token/0xB57B25851fE2311CC3fE511c8F10E868932e0680?type=erc20&chainid=43114",
-        description: "Check Elixir platform for cross-chain supply"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://www.elixir.xyz/deusd/dashboard",
-        description: "Elixir dashboard for collateralization data"
-      }
+      bridgeSupply: [
+        {
+          url: "https://snowtrace.io/token/0xB57B25851fE2311CC3fE511c8F10E868932e0680?type=erc20&chainid=43114",
+          description: "Avalanche Snowtrace for deUSD supply"
+        }
+      ],
+      collateralizationRatio: [
+        {
+          url: "https://www.elixir.xyz/deusd/dashboard",
+          description: "Elixir dashboard for collateralization data"
+        }
+      ]
     },
     category: "elixir"
   },
@@ -178,14 +198,18 @@ export const stablecoins = [
       ]
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "https://layerzeroscan.com/oft/crvUSD/Curve%20Finance",
-        description: "Check Curve Finance for cross-chain crvUSD supply"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://curvemonitor.com/platform/crvusd",
-        description: "crvUSD markets dashboard"
-      }
+      bridgeSupply: [
+        {
+          url: "https://layerzeroscan.com/oft/crvUSD/Curve%20Finance",
+          description: "LayerZero scan for crvUSD cross-chain supply"
+        }
+      ],
+      collateralizationRatio: [
+        {
+          url: "https://curvemonitor.com/platform/crvusd",
+          description: "Curve Monitor - crvUSD markets dashboard"
+        }
+      ]
     },
     category: "curve"
   },
@@ -217,14 +241,18 @@ export const stablecoins = [
       ]
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "https://docs.chain.link/ccip/directory/mainnet/token/USDO",
-        description: "Check OpenEden for cross-chain supply data"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://openeden.com/usdo/transparency",
-        description: "OpenEden transparency page"
-      }
+      bridgeSupply: [
+        {
+          url: "https://docs.chain.link/ccip/directory/mainnet/token/USDO",
+          description: "Chainlink CCIP directory for USDO"
+        }
+      ],
+      collateralizationRatio: [
+        {
+          url: "https://openeden.com/usdo/transparency",
+          description: "OpenEden transparency page"
+        }
+      ]
     },
     category: "openeden"
   },
@@ -248,14 +276,13 @@ export const stablecoins = [
       lpTokensToMonitor: []
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "No bridged supply",
-        description: "Check f(x) Protocol for cross-chain supply"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://fx.aladdin.club/v2/statistics/",
-        description: "f(x) Protocol dashboard"
-      }
+      bridgeSupply: [],
+      collateralizationRatio: [
+        {
+          url: "https://fx.aladdin.club/v2/statistics/",
+          description: "f(x) Protocol statistics dashboard"
+        }
+      ]
     },
     category: "fx"
   },
@@ -289,14 +316,13 @@ export const stablecoins = [
       ]
     },
     manualDataSources: {
-      bridgeSupply: {
-        dataUrl: "No bridged supply",
-        description: "Check Reserve Protocol for cross-chain reUSD supply"
-      },
-      collateralizationRatio: {
-        dataUrl: "https://hippo.army/",
-        description: "Reserve Protocol dashboard for collateralization data"
-      }
+      bridgeSupply: [],
+      collateralizationRatio: [
+        {
+          url: "https://hippo.army/",
+          description: "Hippo Army - Reserve Protocol dashboard"
+        }
+      ]
     },
     category: "reserve"
   }
