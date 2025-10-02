@@ -32,6 +32,13 @@ export {
   useCurveTokenData
 } from './useCurve.js';
 
+// Fluid hooks
+export {
+  useFluidBorrowLiquidity,
+  useFluidCollateral,
+  useFluidTokenData
+} from './useFluid.js';
+
 // DeFiLlama hooks
 export {
   useDefiLlamaTVL,

@@ -373,6 +373,61 @@ export async function fetchCurvePoolTVL(poolAddress) {
   }
 }
 
+// ================= FLUID CACHE FUNCTIONS =================
+// NOTE: All Fluid functions return COLLATERAL data (when token is used as supplyToken in vaults)
+
+export async function fetchFluidTokenBorrowLiquidity(tokenAddress) {
+  try {
+    const response = await cacheApi.get(`/fluid/token-borrow/${tokenAddress}`);
+    
+    // FluidFetcher returns collateral (supply liquidity) wrapped in standard format: { data: number }
+    if (typeof response.data?.data === 'number') {
+      return Number(response.data.data);
+    }
+    
+    return 0;
+  } catch (error) {
+    console.error(`Error fetching Fluid collateral for ${tokenAddress}:`, error);
+    return 0;
+  }
+}
+
+export async function fetchFluidTokenSupplyLiquidity(tokenAddress) {
+  try {
+    const response = await cacheApi.get(`/fluid/token-supply/${tokenAddress}`);
+    
+    // FluidFetcher returns collateral (supply liquidity) wrapped in standard format: { data: number }
+    if (typeof response.data?.data === 'number') {
+      return Number(response.data.data);
+    }
+    
+    return 0;
+  } catch (error) {
+    console.error(`Error fetching Fluid collateral for ${tokenAddress}:`, error);
+    return 0;
+  }
+}
+
+export async function fetchFluidCollateral(tokenAddress) {
+  try {
+    const response = await cacheApi.get(`/fluid/collateral/${tokenAddress}`);
+    return Number(response.data?.data || 0);
+  } catch (error) {
+    console.error(`Error fetching Fluid collateral for ${tokenAddress}:`, error);
+    return 0;
+  }
+}
+
+export async function fetchAllFluidVaults() {
+  try {
+    const response = await cacheApi.get('/fluid/all-vaults');
+    return response.data?.data || [];
+  } catch (error) {
+    console.error('Error fetching all Fluid vaults:', error);
+    return [];
+  }
+}
+
 export async function fetchFraxswapTokenTVL(tokenAddress) {
   try {
     const response = await cacheApi.get(`/fraxswap/token-tvl/${tokenAddress}`);

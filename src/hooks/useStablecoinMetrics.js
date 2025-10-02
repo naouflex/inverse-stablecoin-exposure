@@ -341,14 +341,16 @@ export function useTotalLendingMarketUsage(contractAddress, options = {}) {
   const aaveData = useAaveCollateralUsage(contractAddress, options);
   const morphoData = useMorphoCollateralUsage(contractAddress, options);
   const eulerData = useEulerCollateralUsage(contractAddress, options);
+  const fluidData = useFluidCollateralUsage(contractAddress, options);
   
   return useMemo(() => {
     const aaveTVL = aaveData.data?.data || 0;
     const morphoTVL = morphoData.data?.data || 0;
     const eulerTVL = eulerData.data?.data || 0;
-    const total = aaveTVL + morphoTVL + eulerTVL;
+    const fluidTVL = fluidData.data?.data || 0;
+    const total = aaveTVL + morphoTVL + eulerTVL + fluidTVL;
     
-    const isLoading = aaveData.isLoading || morphoData.isLoading || eulerData.isLoading;
+    const isLoading = aaveData.isLoading || morphoData.isLoading || eulerData.isLoading || fluidData.isLoading;
     
     return {
       data: {
@@ -356,13 +358,14 @@ export function useTotalLendingMarketUsage(contractAddress, options = {}) {
         protocols: {
           aave_v3: { totalTVL: aaveTVL },
           morpho_combined: { totalTVL: morphoTVL },
-          euler: { totalTVL: eulerTVL }
+          euler: { totalTVL: eulerTVL },
+          fluid: { totalTVL: fluidTVL }
         }
       },
       isLoading,
       source: 'individual_protocol_endpoints'
     };
-  }, [aaveData, morphoData, eulerData]);
+  }, [aaveData, morphoData, eulerData, fluidData]);
 }
 
 // ================= SAFETY BUFFER METRICS =================

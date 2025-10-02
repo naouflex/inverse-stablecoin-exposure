@@ -21,6 +21,7 @@ import { DefiLlamaFetcher } from './services/defillama-fetcher.js';
 import { TheGraphFetcher } from './services/thegraph-fetcher.js';
 import { EthereumFetcher } from './services/ethereum-fetcher.js';
 import { CurveFetcher } from './services/curve-fetcher.js';
+import { FluidFetcher } from './services/fluid-fetcher.js';
 import { StablecoinFetcher } from './services/stablecoin-fetcher.js';
 // Using unified TheGraphFetcher for lending protocols
 
@@ -130,6 +131,7 @@ const defiLlamaFetcher = new DefiLlamaFetcher();
 const theGraphFetcher = new TheGraphFetcher();
 const ethereumFetcher = new EthereumFetcher();
 const curveFetcher = new CurveFetcher();
+const fluidFetcher = new FluidFetcher();
 // Will use theGraphFetcher for lending protocols
 let stablecoinFetcher; // Will be initialized after Redis connection
 
@@ -1071,6 +1073,99 @@ app.get('/api/curve/all-pools', async (req, res) => {
   } catch (error) {
     logger.error('Curve all pools error:', error);
     res.status(500).json({ error: 'Failed to fetch all Curve pools' });
+  }
+});
+
+// ================= FLUID ENDPOINTS =================
+// Fluid Protocol collateral/supply data
+// Note: All endpoints return collateral (supply liquidity) - when a token is used as supplyToken in vaults
+
+// fetchFluidTokenCollateral -> /api/fluid/token-borrow/:tokenAddress
+// NOTE: Despite the name "token-borrow", this returns COLLATERAL data (supply liquidity)
+app.get('/api/fluid/token-borrow/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `fluid:token-collateral:${tokenAddress}`;
+    
+    const data = await safeExternalFetch(
+      cacheKey,
+      () => fluidFetcher.fetchData('token_borrow', { tokenAddress })
+    );
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Fluid token collateral error:', error);
+    res.status(500).json({ error: 'Failed to fetch Fluid token collateral' });
+  }
+});
+
+// fetchFluidTokenSupplyLiquidity -> /api/fluid/token-supply/:tokenAddress
+// Returns collateral (supply liquidity) for a token used in Fluid vaults
+app.get('/api/fluid/token-supply/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `fluid:token-supply:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      const liquidityValue = await fluidFetcher.fetchTokenSupplyLiquidity(tokenAddress);
+      data = {
+        protocol: 'fluid',
+        queryType: 'token_supply',
+        data: liquidityValue,
+        fetched_at: new Date().toISOString()
+      };
+      await cacheManager.set(cacheKey, data, 1800); // 30 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Fluid token supply liquidity error:', error);
+    res.status(500).json({ error: 'Failed to fetch Fluid token supply liquidity' });
+  }
+});
+
+// fetchFluidCollateral -> /api/fluid/collateral/:tokenAddress (primary endpoint)
+// Returns total USD value of a token used as collateral across all Fluid vaults
+app.get('/api/fluid/collateral/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `fluid:collateral:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      // Get collateral (supply liquidity) for this token in Fluid vaults
+      const collateralValue = await fluidFetcher.fetchTokenBorrowLiquidity(tokenAddress);
+      data = {
+        data: collateralValue,
+        source: 'fluid_api',
+        fetched_at: new Date().toISOString()
+      };
+      await cacheManager.set(cacheKey, data, 1800); // 30 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Fluid collateral error:', error);
+    res.status(500).json({ error: 'Failed to fetch Fluid collateral data' });
+  }
+});
+
+// fetchAllFluidVaults -> /api/fluid/all-vaults
+app.get('/api/fluid/all-vaults', async (req, res) => {
+  try {
+    const cacheKey = 'fluid:all-vaults';
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await fluidFetcher.fetchData('all_vaults', {});
+      await cacheManager.set(cacheKey, data, 3600); // 1 hour
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Fluid all vaults error:', error);
+    res.status(500).json({ error: 'Failed to fetch all Fluid vaults' });
   }
 });
 

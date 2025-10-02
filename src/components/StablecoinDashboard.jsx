@@ -150,7 +150,8 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
           <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.euler?.totalTVL || 0)}</Text>;
       
       case 'fluidCollateral':
-        return <Text fontSize="sm" color="gray.500">N/A</Text>; // Not implemented yet
+        return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
+          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.fluid?.totalTVL || 0)}</Text>;
       
       case 'totalLendingMarkets':
         return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
