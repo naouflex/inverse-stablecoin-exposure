@@ -454,7 +454,7 @@ export function useStablecoinInsuranceFundFromBalances(insuranceFundConfig, opti
 
     // If no queries, return unavailable
     if (!hasRegularTokens && !hasLPTokensData) {
-      console.log('Insurance fund: No queries configured');
+      //console.log('Insurance fund: No queries configured');
       return {
         data: 0,
         _unavailable: true,
@@ -497,7 +497,7 @@ export function useStablecoinInsuranceFundFromBalances(insuranceFundConfig, opti
                 price: tokenData.price || 0,
                 type: 'token'
               };
-              console.log(`Insurance fund token: ${tokenAddress} = $${usdValue.toFixed(2)}`);
+              //console.log(`Insurance fund token: ${tokenAddress} = $${usdValue.toFixed(2)}`);
             }
           });
         } else if (query.error) {
@@ -520,14 +520,14 @@ export function useStablecoinInsuranceFundFromBalances(insuranceFundConfig, opti
             poolAddress: lpConfig.poolAddress,
             underlyingTokens: lpConfig.underlyingTokens
           };
-          console.log(`Insurance fund LP: ${lpConfig.lpTokenAddress} = $${query.data.lpBalanceUSD.toFixed(2)}`);
+          //console.log(`Insurance fund LP: ${lpConfig.lpTokenAddress} = $${query.data.lpBalanceUSD.toFixed(2)}`);
         } else if (query.error) {
           console.warn(`Insurance fund LP query error:`, query.error);
         }
       });
     }
 
-    console.log(`Insurance fund total: $${totalUSDValue.toFixed(2)}`);
+    //console.log(`Insurance fund total: $${totalUSDValue.toFixed(2)}`);
     
     return {
       data: totalUSDValue,
@@ -871,12 +871,7 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   
   // Choose the appropriate insurance fund data source based on configuration
   const insuranceFund = useMemo(() => {
-    console.log(`Insurance fund logic for ${stablecoin.symbol}:`, {
-      type: stablecoin.insuranceFund?.type,
-      rlpCoingeckoId: stablecoin.insuranceFund?.rlpCoingeckoId,
-      fdvData: insuranceFundFromFDV.data,
-      fdvLoading: insuranceFundFromFDV.isLoading
-    });
+
     
     // Special case for Resolv: use FDV data
     if (stablecoin.insuranceFund?.type === 'fdv' && stablecoin.insuranceFund.rlpCoingeckoId) {
@@ -887,7 +882,7 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
         rlpTokenAddress: stablecoin.insuranceFund.rlpTokenAddress,
         rlpCoingeckoId: stablecoin.insuranceFund.rlpCoingeckoId
       };
-      console.log(`Resolv insurance fund result:`, result);
+      //console.log(`Resolv insurance fund result:`, result);
       return result;
     }
     
