@@ -235,8 +235,7 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
         borderRightColor={borderColor}
         zIndex={2}
         boxShadow="2px 0 4px rgba(0,0,0,0.1)"
-        minW={{ base: "200px", sm: "250px", md: "300px" }}
-        maxW={{ base: "200px", sm: "250px", md: "300px" }}
+        width="200px"
         borderLeft={`4px solid`}
         borderLeftColor={sectionColor}
       >
@@ -253,7 +252,7 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
           <Td 
             key={stablecoin.symbol} 
             textAlign="center" 
-            minW="120px"
+            width="80px"
             cursor={isManualMetric ? 'pointer' : 'default'}
             onClick={isManualMetric ? () => openOperatorModal(stablecoin.symbol, metricKey) : undefined}
             _hover={isManualMetric ? { bg: hoverBg } : undefined}
@@ -394,7 +393,8 @@ export default function StablecoinDashboard() {
       }}
       w="100vw"
       maxW="100vw"
-      py={{ base: 1, sm: 2, md: 3 }}
+      pt={{ base: 1, sm: 2, md: 3 }}
+      pb={{ base: 4, sm: 6, md: 8 }}
       px={{ base: 1, sm: 2, md: 3 }}
     >
       {/* Loading Progress & Export Buttons */}
@@ -481,14 +481,18 @@ export default function StablecoinDashboard() {
         position="relative"
         w="100%"
         maxW="100%"
+        pb={4}
       >
         <Table 
-          size={{ base: "xs", sm: "sm" }} 
+          size="xs"
           variant="simple"
           w="100%"
           sx={{ 
             '& td:first-child, & th:first-child': { position: 'sticky !important', left: 0 },
-            tableLayout: 'auto',
+            '& td, & th': { 
+              padding: '4px 4px !important'
+            },
+            tableLayout: 'fixed',
             width: '100%',
             minWidth: '100%',
             borderSpacing: 0,
@@ -508,8 +512,7 @@ export default function StablecoinDashboard() {
                 borderRight="2px solid"
                 borderRightColor={useColorModeValue('gray.300', 'gray.600')}
                 boxShadow="2px 0 4px rgba(0,0,0,0.1)"
-                minW={{ base: "200px", sm: "250px", md: "300px" }}
-                maxW={{ base: "200px", sm: "250px", md: "300px" }}
+                width="200px"
               >
                 <Box py={2}>
                   <Text fontWeight="bold">Metrics</Text>
@@ -522,8 +525,7 @@ export default function StablecoinDashboard() {
                   key={stablecoin.symbol}
                   fontSize="xs" 
                   textAlign="center"
-                  minW="120px"
-                  maxW="140px"
+                  width="80px"
                 >
                   <VStack spacing={1} py={2}>
                     <Text fontWeight="bold" fontSize="sm" noOfLines={1}>
