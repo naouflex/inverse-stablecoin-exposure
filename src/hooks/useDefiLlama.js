@@ -23,7 +23,6 @@ export function useDefiLlamaTVL(protocolSlug, options = {}) {
     staleTime: 5 * 60 * 1000, // 5 minutes
     cacheTime: 10 * 60 * 1000, // 10 minutes
     retry: 2,
-    retryDelay: 1000,
     ...options
   });
 }
@@ -43,7 +42,6 @@ export function useTokenPrice(tokenAddress, chain = 'ethereum', options = {}) {
     staleTime: 1 * 60 * 1000, // 1 minute (prices change frequently)
     cacheTime: 3 * 60 * 1000, // 3 minutes
     retry: 2,
-    retryDelay: 1000,
     ...options
   });
 }
@@ -63,7 +61,6 @@ export function useMultipleTokenPrices(tokenAddresses, chain = 'ethereum', optio
     staleTime: 1 * 60 * 1000, // 1 minute
     cacheTime: 3 * 60 * 1000, // 3 minutes
     retry: 2,
-    retryDelay: 1000,
     ...options
   });
 }
@@ -82,7 +79,6 @@ export function useProtocolInfo(protocolSlug, options = {}) {
     staleTime: 30 * 60 * 1000, // 30 minutes (protocol info changes rarely)
     cacheTime: 60 * 60 * 1000, // 1 hour
     retry: 2,
-    retryDelay: 1000,
     ...options
   });
 }
@@ -99,7 +95,6 @@ export function useAllProtocols(options = {}) {
     staleTime: 60 * 60 * 1000, // 1 hour (list changes rarely)
     cacheTime: 2 * 60 * 60 * 1000, // 2 hours
     retry: 2,
-    retryDelay: 1000,
     ...options
   });
 }
@@ -118,7 +113,6 @@ export function useProtocolTVLHistory(protocolSlug, options = {}) {
     staleTime: 10 * 60 * 1000, // 10 minutes
     cacheTime: 30 * 60 * 1000, // 30 minutes
     retry: 2,
-    retryDelay: 1000,
     ...options
   });
 }
@@ -137,7 +131,6 @@ export function useProtocolTVLByChain(protocolSlug, options = {}) {
     staleTime: 5 * 60 * 1000, // 5 minutes
     cacheTime: 10 * 60 * 1000, // 10 minutes
     retry: 2,
-    retryDelay: 1000,
     ...options
   });
 }

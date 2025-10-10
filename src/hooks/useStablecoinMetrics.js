@@ -704,33 +704,10 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   const coingeckoIds = stablecoin.coingeckoIds;
   const contractAddresses = stablecoin.contractAddresses;
   
-  // Staggered loading: delay different metric groups to smooth out request bursts
-  const [enableDEX, setEnableDEX] = useState(false);
-  const [enableLending, setEnableLending] = useState(false);
-  const [enableSafety, setEnableSafety] = useState(false);
-  
-  useEffect(() => {
-    if (options.enabled !== false) {
-      // Group 1: Supply metrics (CoinGecko) - load immediately
-      // Already enabled by default
-      
-      // Group 2: DEX metrics - increased from 150ms to 800ms to prevent rate limiting
-      const dexTimer = setTimeout(() => setEnableDEX(true), 800);
-      
-      // Group 3: Lending metrics - increased from 300ms to 1800ms (DEX + 1000ms)
-      // Lending queries are most complex (5 subgraphs), need more time
-      const lendingTimer = setTimeout(() => setEnableLending(true), 1800);
-      
-      // Group 4: Safety buffer metrics - increased from 450ms to 2800ms (Lending + 1000ms)
-      const safetyTimer = setTimeout(() => setEnableSafety(true), 2800);
-      
-      return () => {
-        clearTimeout(dexTimer);
-        clearTimeout(lendingTimer);
-        clearTimeout(safetyTimer);
-      };
-    }
-  }, [options.enabled]);
+  // Rate limiting is handled by the cache service, so we can enable all metrics immediately
+  const enableDEX = options.enabled !== false;
+  const enableLending = options.enabled !== false;
+  const enableSafety = options.enabled !== false;
   
   // Use existing CoinGecko hooks for supply data (Group 1 - immediate)
   const coinGeckoDataQueries = coingeckoIds.map(coinId => 
