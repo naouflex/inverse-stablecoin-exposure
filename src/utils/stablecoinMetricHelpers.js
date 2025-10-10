@@ -2,7 +2,6 @@
  * Stablecoin Metric Helper Functions
  * 
  * Utilities to extract and organize metric values from stablecoin data
- * Similar to ProtocolRow pattern but adapted for column-based stablecoin structure
  */
 
 // ================= FACTOR OF SAFETY CALCULATION HELPERS =================

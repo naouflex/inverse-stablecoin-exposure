@@ -26,11 +26,8 @@ export class TheGraphFetcher {
       sushi_v2: process.env.SUSHI_V2_SUBGRAPH_ID,
       fraxswap: process.env.FRAXSWAP_SUBGRAPH_ID,
       balancer: process.env.BALANCER_V2_SUBGRAPH_ID,
-      // Lending protocol subgraphs
+      // Lending protocol subgraphs (Morpho now uses unified API)
       aave_v3: process.env.AAVE_V3_MAINNET,
-      morpho_compound: process.env.MORPHO_COMPOUND_MAINNET,
-      morpho_aave_v2: process.env.MORPHO_AAVE_V2_MAINNET,
-      morpho_aave_v3: process.env.MORPHO_AAVE_V3_MAINNET,
       euler: process.env.EULER_MAINNET
     };
   }
@@ -605,28 +602,6 @@ export class TheGraphFetcher {
     const address = tokenAddress?.toLowerCase();
     
     switch (protocol) {
-      case 'morpho_compound':
-      case 'morpho_aave_v2':
-      case 'morpho_aave_v3':
-        return `{
-          markets(where: { inputToken_: { id: "${address}" } }) {
-            id
-            name
-            inputToken {
-              id
-              symbol
-              name
-            }
-            totalValueLockedUSD
-            totalDepositBalanceUSD
-            totalBorrowBalanceUSD
-            inputTokenBalance
-            inputTokenPriceUSD
-            exchangeRate
-            isActive
-          }
-        }`;
-      
       case 'euler':
         return `{
           markets(where: { inputToken_: { id: "${address}" } }) {
@@ -645,7 +620,7 @@ export class TheGraphFetcher {
         }`;
       
       default:
-        throw new Error(`Lending markets query not implemented for ${protocol}`);
+        throw new Error(`Lending markets query not implemented for ${protocol}. Note: Morpho now uses unified API endpoint.`);
     }
   }
 

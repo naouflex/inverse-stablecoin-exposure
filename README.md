@@ -178,13 +178,6 @@ The dashboard integrates with multiple APIs to provide comprehensive stablecoin 
 </SortableHeader>
 ```
 
-3. **Add the data cell** in the `ProtocolRow` component:
-```jsx
-<Td>
-  <Text fontSize="sm">{protocol.customMetric}</Text>
-</Td>
-```
-
 ### Modifying Color Thresholds
 
 Update the `getColorForMetric` function in `DeFiDashboard.jsx`:
@@ -362,16 +355,7 @@ export function useCustomAPI(protocolAddress, options = {}) {
 }
 ```
 
-### Protocol-Specific Components
 
-Create specialized components for unique protocols:
-
-```javascript
-// Handle special protocols
-if (protocol.ticker === 'SPECIAL') {
-  return <SpecialProtocolRow protocol={protocol} />;
-}
-```
 
 ### Custom Styling
 

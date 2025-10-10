@@ -68,7 +68,7 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
   const manualMetrics = ['bridgeSupply', 'collateralizationRatio'];
 
   const getMetricValue = (stablecoinIndex, metricKey) => {
-    // Sequential loading check - similar to ProtocolRow's shouldLoad pattern
+    // Sequential loading check 
     const shouldLoad = loadedStablecoins.has(stablecoinIndex);
     
     if (!shouldLoad) {
@@ -324,7 +324,6 @@ export default function StablecoinDashboard() {
 
   useEffect(() => {
     // Load stablecoins one by one with short delays
-    // Similar to ProtocolRow pattern in DeFi dashboard where each row loads with shouldLoad prop
     // Here, stablecoins are columns, so we enable them sequentially via loadedStablecoins Set
     const loadStablecoinsSequentially = async () => {
       for (let i = 0; i < stablecoins.length; i++) {

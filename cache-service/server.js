@@ -23,7 +23,8 @@ import { EthereumFetcher } from './services/ethereum-fetcher.js';
 import { CurveFetcher } from './services/curve-fetcher.js';
 import { FluidFetcher } from './services/fluid-fetcher.js';
 import { StablecoinFetcher } from './services/stablecoin-fetcher.js';
-// Using unified TheGraphFetcher for lending protocols
+import { MorphoFetcher } from './services/morpho-fetcher.js';
+// Using unified MorphoFetcher for all Morpho markets
 
 // Initialize logger
 const logger = createLogger({
@@ -132,6 +133,7 @@ const theGraphFetcher = new TheGraphFetcher();
 const ethereumFetcher = new EthereumFetcher();
 const curveFetcher = new CurveFetcher();
 const fluidFetcher = new FluidFetcher();
+const morphoFetcher = new MorphoFetcher();
 // Will use theGraphFetcher for lending protocols
 let stablecoinFetcher; // Will be initialized after Redis connection
 
@@ -1789,91 +1791,22 @@ app.get('/api/lending/aave-v3/:tokenAddress', async (req, res) => {
   }
 });
 
-// Morpho Compound market data
-app.get('/api/lending/morpho-compound/:tokenAddress', async (req, res) => {
+// Unified Morpho market data using official API
+app.get('/api/lending/morpho/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `morpho-compound-${tokenAddress}`;
+    const cacheKey = `morpho-unified-${tokenAddress}`;
     
     let data = await cacheManager.get(cacheKey);
     if (!data) {
-      const graphData = await theGraphFetcher.fetchData('morpho_compound', 'lending_markets', { tokenAddress });
-      const markets = graphData?.data?.markets || [];
-      
-      data = {
-        protocol: 'morpho_compound',
-        tokenAddress,
-        markets: markets,
-        totalTVL: markets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-        totalDeposits: markets.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0),
-        totalBorrows: markets.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0),
-        fetched_at: new Date().toISOString()
-      };
+      data = await morphoFetcher.getTokenMarkets(tokenAddress);
       await cacheManager.set(cacheKey, data, 900); // 15 minutes
     }
     
     res.json(data);
   } catch (error) {
-    logger.error('Morpho Compound data error:', error);
-    res.status(500).json({ error: 'Failed to fetch Morpho Compound data' });
-  }
-});
-
-// Morpho Aave V2 market data
-app.get('/api/lending/morpho-aave-v2/:tokenAddress', async (req, res) => {
-  try {
-    const { tokenAddress } = req.params;
-    const cacheKey = `morpho-aave-v2-${tokenAddress}`;
-    
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      const graphData = await theGraphFetcher.fetchData('morpho_aave_v2', 'lending_markets', { tokenAddress });
-      const marketData = graphData?.data?.markets || [];
-      data = {
-        protocol: 'morpho_aave_v2',
-        tokenAddress,
-        markets: marketData,
-        totalTVL: marketData.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-        totalDeposits: marketData.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0),
-        totalBorrows: marketData.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0),
-        fetched_at: new Date().toISOString()
-      };
-      await cacheManager.set(cacheKey, data, 900); // 15 minutes
-    }
-    
-    res.json(data);
-  } catch (error) {
-    logger.error('Morpho Aave V2 data error:', error);
-    res.status(500).json({ error: 'Failed to fetch Morpho Aave V2 data' });
-  }
-});
-
-// Morpho Aave V3 market data
-app.get('/api/lending/morpho-aave-v3/:tokenAddress', async (req, res) => {
-  try {
-    const { tokenAddress } = req.params;
-    const cacheKey = `morpho-aave-v3-${tokenAddress}`;
-    
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      const graphData = await theGraphFetcher.fetchData('morpho_aave_v3', 'lending_markets', { tokenAddress });
-      const marketData = graphData?.data?.markets || [];
-      data = {
-        protocol: 'morpho_aave_v3',
-        tokenAddress,
-        markets: marketData,
-        totalTVL: marketData.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-        totalDeposits: marketData.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0),
-        totalBorrows: marketData.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0),
-        fetched_at: new Date().toISOString()
-      };
-      await cacheManager.set(cacheKey, data, 900); // 15 minutes
-    }
-    
-    res.json(data);
-  } catch (error) {
-    logger.error('Morpho Aave V3 data error:', error);
-    res.status(500).json({ error: 'Failed to fetch Morpho Aave V3 data' });
+    logger.error('Morpho unified data error:', error);
+    res.status(500).json({ error: 'Failed to fetch Morpho data' });
   }
 });
 
@@ -1915,22 +1848,17 @@ app.get('/api/lending/total-tvl/:tokenAddress', async (req, res) => {
     let data = await cacheManager.get(cacheKey);
     if (!data) {
       // Fetch data from all lending protocols using unified approach
-      const [aaveData, morphoCompound, morphoAaveV2, morphoAaveV3, eulerData] = await Promise.all([
+      const [aaveData, morphoData, eulerData] = await Promise.all([
         theGraphFetcher.fetchData('aave_v3', 'lending_reserves', { tokenAddress }),
-        theGraphFetcher.fetchData('morpho_compound', 'lending_markets', { tokenAddress }),
-        theGraphFetcher.fetchData('morpho_aave_v2', 'lending_markets', { tokenAddress }),
-        theGraphFetcher.fetchData('morpho_aave_v3', 'lending_markets', { tokenAddress }),
+        morphoFetcher.getTokenMarkets(tokenAddress),
         theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress })
       ]);
       
       // Debug the actual data structure
       console.log('Debug aaveData structure:', JSON.stringify(aaveData, null, 2));
-      console.log('Debug morphoCompound structure:', JSON.stringify(morphoCompound, null, 2));
+      console.log('Debug morphoData structure:', JSON.stringify(morphoData, null, 2));
       
       const aaveMarkets = aaveData?.data?.markets || [];
-      const morphoCompoundMarkets = morphoCompound?.data?.markets || [];
-      const morphoAaveV2Markets = morphoAaveV2?.data?.markets || [];
-      const morphoAaveV3Markets = morphoAaveV3?.data?.markets || [];
       const eulerMarkets = eulerData?.data?.markets || [];
       
       data = {
@@ -1942,17 +1870,14 @@ app.get('/api/lending/total-tvl/:tokenAddress', async (req, res) => {
             totalBorrows: Array.isArray(aaveMarkets) ? aaveMarkets.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0) : 0,
             markets: Array.isArray(aaveMarkets) ? aaveMarkets.length : 0
           },
-          morpho_compound: {
-            totalTVL: morphoCompoundMarkets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-            markets: morphoCompoundMarkets.length
-          },
-          morpho_aave_v2: {
-            totalTVL: morphoAaveV2Markets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-            markets: morphoAaveV2Markets.length
-          },
-          morpho_aave_v3: {
-            totalTVL: morphoAaveV3Markets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-            markets: morphoAaveV3Markets.length
+          morpho_combined: {
+            totalTVL: morphoData?.totalCollateralTVL || 0,
+            totalSupplyTVL: morphoData?.totalSupplyTVL || 0,
+            markets: morphoData?.marketCount || 0,
+            breakdown: {
+              loanMarkets: morphoData?.markets?.loanMarkets?.length || 0,
+              collateralMarkets: morphoData?.markets?.collateralMarkets?.length || 0
+            }
           },
           euler: {
             totalTVL: eulerMarkets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
@@ -1963,12 +1888,10 @@ app.get('/api/lending/total-tvl/:tokenAddress', async (req, res) => {
         lastUpdated: new Date().toISOString()
       };
       
-      // Calculate total TVL
+      // Calculate total TVL (for competitor markets, we use collateral TVL)
       data.totalLendingTVL = 
         (data.protocols.aave_v3.totalTVL || 0) +
-        (data.protocols.morpho_compound.totalTVL || 0) +
-        (data.protocols.morpho_aave_v2.totalTVL || 0) +
-        (data.protocols.morpho_aave_v3.totalTVL || 0) +
+        (data.protocols.morpho_combined.totalTVL || 0) +
         (data.protocols.euler.totalTVL || 0);
       await cacheManager.set(cacheKey, data, 900); // 15 minutes
     }

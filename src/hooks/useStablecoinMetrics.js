@@ -235,37 +235,32 @@ export function useAaveCollateralUsage(contractAddress, options = {}) {
 }
 
 /**
- * Hook to fetch combined Morpho collateral usage for a stablecoin
+ * Hook to fetch Morpho collateral usage using unified API
  */
 export function useMorphoCollateralUsage(contractAddress, options = {}) {
   return useQuery({
-    queryKey: ['morpho-combined-lending', contractAddress],
+    queryKey: ['morpho-unified-lending', contractAddress],
     queryFn: async () => {
       if (!contractAddress) return { data: 0, _unavailable: true };
       
       try {
-        // Fetch data from all Morpho subgraphs
-        const [compoundData, aaveV2Data, aaveV3Data] = await Promise.all([
-          api.get(`/lending/morpho-compound/${contractAddress}`),
-          api.get(`/lending/morpho-aave-v2/${contractAddress}`),
-          api.get(`/lending/morpho-aave-v3/${contractAddress}`)
-        ]);
+        const response = await api.get(`/lending/morpho/${contractAddress}`);
         
-        const totalTVL = (compoundData.data?.totalTVL || 0) + 
-                        (aaveV2Data.data?.totalTVL || 0) + 
-                        (aaveV3Data.data?.totalTVL || 0);
+        // Return collateral TVL (when token is used as collateral in Morpho markets)
+        const totalTVL = response.data?.totalCollateralTVL || 0;
         
         return { 
           data: totalTVL,
+          totalSupplyTVL: response.data?.totalSupplyTVL || 0,
+          marketCount: response.data?.marketCount || 0,
           breakdown: {
-            compound: compoundData.data?.totalTVL || 0,
-            aave_v2: aaveV2Data.data?.totalTVL || 0,
-            aave_v3: aaveV3Data.data?.totalTVL || 0
+            loanMarkets: response.data?.markets?.loanMarkets?.length || 0,
+            collateralMarkets: response.data?.markets?.collateralMarkets?.length || 0
           },
-          source: 'morpho_subgraphs'
+          source: 'morpho_unified_api'
         };
       } catch (error) {
-        console.warn('Morpho data unavailable:', error);
+        console.warn('Morpho unified data unavailable:', error);
         return { data: 0, _unavailable: true };
       }
     },
@@ -273,6 +268,9 @@ export function useMorphoCollateralUsage(contractAddress, options = {}) {
     staleTime: 15 * 60 * 1000,
     cacheTime: 60 * 60 * 1000,
     retry: 1,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     ...options
   });
 }
@@ -817,7 +815,20 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   );
   
   // Lending markets - Group 3 (staggered loading)
-  const lendingQueries = Object.entries(contractAddresses).map(([tokenKey, contractAddress]) => ({
+  // Combine regular contract addresses and staked contract addresses for lending queries
+  const allContractAddresses = {
+    ...contractAddresses,
+    ...(stablecoin.stakedContractAddresses || {})
+  };
+  
+  // Debug logging to see what contracts are being queried
+  useEffect(() => {
+    if (enableLending && Object.keys(allContractAddresses).length > 0) {
+      console.log(`[${stablecoin.symbol}] Lending contracts being queried:`, allContractAddresses);
+    }
+  }, [enableLending, allContractAddresses, stablecoin.symbol]);
+  
+  const lendingQueries = Object.entries(allContractAddresses).map(([tokenKey, contractAddress]) => ({
     tokenKey,
     contractAddress,
     query: useTotalLendingMarketUsage(contractAddress, {
@@ -844,6 +855,18 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
       return acc;
     }, {});
     
+    // Debug logging for lending usage
+    if (!isLoading && lendingQueries.length > 0) {
+      const queryResults = lendingQueries.map(({ tokenKey, contractAddress, query }) => ({
+        tokenKey,
+        contractAddress: contractAddress.slice(0, 8) + '...',
+        totalTVL: query.data?.totalLendingTVL || 0,
+        morpho: query.data?.protocols?.morpho_combined?.totalTVL || 0
+      }));
+      console.log(`[${stablecoin.symbol}] Lending query results:`, queryResults);
+      console.log(`[${stablecoin.symbol}] Combined protocols:`, combinedProtocols);
+    }
+    
     return {
       data: {
         totalLendingTVL: total,
@@ -851,7 +874,7 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
       },
       isLoading
     };
-  }, [lendingQueries]);
+  }, [lendingQueries, stablecoin.symbol]);
   
   // Safety metrics - Group 4 (staggered loading)
   const insuranceFundFromBalances = useStablecoinInsuranceFundFromBalances(
@@ -916,22 +939,26 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     { ...options, enabled: enableSafety && (options.enabled !== false) }
   );
   
-  // For reUSD, use blockchain total supply directly from the staked contract
+  // For reUSD, use blockchain total supply directly from the first staked contract
+  const firstStakedContract = stablecoin.stakedContractAddresses 
+    ? Object.values(stablecoin.stakedContractAddresses)[0] 
+    : null;
+    
   const stakedSupplyFromBlockchain = useTokenTotalSupply(
-    stablecoin.symbol === 'reUSD' ? stablecoin.stakedContractAddress : null,
+    stablecoin.symbol === 'reUSD' ? firstStakedContract : null,
     { ...options, enabled: enableSafety && (options.enabled !== false) }
   );
   
   // Fetch decimals for reUSD staked contract to properly format the amount
   const stakedContractDecimals = useTokenDecimals(
-    stablecoin.symbol === 'reUSD' ? stablecoin.stakedContractAddress : null,
+    stablecoin.symbol === 'reUSD' ? firstStakedContract : null,
     { ...options, enabled: enableSafety && (options.enabled !== false) }
   );
   
   // Choose the appropriate data source based on the stablecoin
   const stakedSupply = useMemo(() => {
     // Special case for reUSD - use blockchain total supply with proper decimal formatting
-    if (stablecoin.symbol === 'reUSD' && stablecoin.stakedContractAddress) {
+    if (stablecoin.symbol === 'reUSD' && firstStakedContract) {
       const rawAmount = stakedSupplyFromBlockchain.data || 0;
       const decimals = stakedContractDecimals.data || 18;
       const formattedAmount = rawAmount > 0 ? formatTokenAmount(rawAmount, decimals) : 0;
@@ -956,7 +983,7 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     
     // Fallback to contract-based approach
     return stakedSupplyFromContract;
-  }, [stablecoin.symbol, stablecoin.stakedCoingeckoIds, stablecoin.stakedContractAddress, 
+  }, [stablecoin.symbol, stablecoin.stakedCoingeckoIds, firstStakedContract, 
       stakedSupplyFromCoinGecko, stakedSupplyFromContract, stakedSupplyFromBlockchain, stakedContractDecimals]);
 
   // Calculate combined TVL values (primary + additional contracts)

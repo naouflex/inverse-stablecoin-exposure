@@ -11,7 +11,10 @@ export const stablecoins = [
       susds: "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd"
     },
     stakedCoingeckoIds: ["susds"], // sUSDS for staked supply
-    stakedContractAddress: "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd", // sUSDS contract
+    stakedContractAddresses: {
+      susds: "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd", // sUSDS contract
+      sdai: "0x83f20f44975d03b1b09e64809b757c47f942beea" // sDAI contract
+    },
     insuranceFund: {
       monitoredAddresses: [
       ],
@@ -54,7 +57,9 @@ export const stablecoins = [
       susde: "0x9d39a5de30e57443bff2a8307a4256c8797a3497"
     },
     stakedCoingeckoIds: ["ethena-staked-usde"], // sUSDe for staked supply
-    stakedContractAddress: "0x9d39a5de30e57443bff2a8307a4256c8797a3497", // sUSDe contract
+    stakedContractAddresses: {
+      susde: "0x9d39a5de30e57443bff2a8307a4256c8797a3497" // sUSDe contract
+    },
     insuranceFund: {
       monitoredAddresses: [
         "0x2b5ab59163a6e93b4486f6055d33ca4a115dd4d5" 
@@ -136,7 +141,9 @@ export const stablecoins = [
       sdeusd: "0x5c5b196abe0d54485975d1ec29617d42d9198326"
     },
     stakedCoingeckoIds: ["elixir-staked-deusd"], // sdeUSD for staked supply
-    stakedContractAddress: "0x5c5b196abe0d54485975d1ec29617d42d9198326", // sdeUSD contract
+    stakedContractAddresses: {
+      sdeusd: "0x5c5b196abe0d54485975d1ec29617d42d9198326" // sdeUSD contract
+    },
     insuranceFund: {
       monitoredAddresses: [
       ],
@@ -179,7 +186,9 @@ export const stablecoins = [
       scrvusd: "0x0655977feb2f289a4ab78af67bab0d17aab84367"
     },
     stakedCoingeckoIds: ["savings-crvusd"], // scrvUSD for staked supply
-    stakedContractAddress: "0x0655977feb2f289a4ab78af67bab0d17aab84367", // scrvUSD contract
+    stakedContractAddresses: {
+      scrvusd: "0x0655977feb2f289a4ab78af67bab0d17aab84367" // scrvUSD contract
+    },
     insuranceFund: {
       monitoredAddresses: [
       ],
@@ -221,8 +230,10 @@ export const stablecoins = [
       usdo: "0x8238884ec9668ef77b90c6dff4d1a9f4f4823bfe", // USDO token
       cusdo: "0xad55aebc9b8c03fc43cd9f62260391c13c23e7c0" // cUSDO token (from Curve pool)
     },
-    stakedCoingeckoIds: ["compounding-open-dollar"], // No staked version available
-    stakedContractAddress: "0xad55aebc9b8c03fc43cd9f62260391c13c23e7c0",
+    stakedCoingeckoIds: ["compounding-open-dollar"], // cUSDO for staked supply
+    stakedContractAddresses: {
+      cusdo: "0xad55aebc9b8c03fc43cd9f62260391c13c23e7c0" // cUSDO contract
+    },
     insuranceFund: {
       monitoredAddresses: [
       ],
@@ -263,8 +274,11 @@ export const stablecoins = [
     contractAddresses: {
       fxusd: "0x085780639cc2cacd35e474e71f4d000e2405d8f6"
     },
-    stakedCoingeckoIds: ["fx-usd-saving"], // No staked version available
-    stakedContractAddress: "0x7743e50f534a7f9f1791dde7dcd89f7783eefc39",
+    stakedCoingeckoIds: ["fx-usd-saving"], // xfxUSD for staked supply
+    stakedContractAddresses: {
+      xfxusd: "0x7743e50f534a7f9f1791dde7dcd89f7783eefc39", // xfxUSD contract
+      fxsave: "0x7743e50f534a7f9f1791dde7dcd89f7783eefc39"
+    },
     insuranceFund: {
       monitoredAddresses: [
         "0x65c9a641afceb9c0e6034e558a319488fa0fa3be"
@@ -293,8 +307,10 @@ export const stablecoins = [
     contractAddresses: {
       reusd: "0x57ab1e0003f623289cd798b1824be09a793e4bec"
     },
-    stakedCoingeckoIds: [], // No staked version available
-    stakedContractAddress: "0x557AB1e003951A73c12D16F0fEA8490E39C33C35",
+    stakedCoingeckoIds: [], // No CoinGecko ID for staked version
+    stakedContractAddresses: {
+      rsr: "0x557AB1e003951A73c12D16F0fEA8490E39C33C35" // RSR staking contract
+    },
     insuranceFund: {
       monitoredAddresses: [
         "0x00000000efe883b3304aFf71eaCf72Dbc3e1b577"
