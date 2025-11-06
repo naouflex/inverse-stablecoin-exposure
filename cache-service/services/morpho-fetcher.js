@@ -340,4 +340,26 @@ export class MorphoFetcher {
   clearQueue() {
     this.requestQueue.clear();
   }
+
+  /**
+   * Health check method
+   */
+  async healthCheck() {
+    try {
+      const status = this.getQueueStatus();
+      const isHealthy = status.circuitState === 'CLOSED' && status.failureCount < 5;
+      
+      return {
+        healthy: isHealthy,
+        status: status,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
 }

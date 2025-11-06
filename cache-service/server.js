@@ -24,6 +24,7 @@ import { CurveFetcher } from './services/curve-fetcher.js';
 import { FluidFetcher } from './services/fluid-fetcher.js';
 import { StablecoinFetcher } from './services/stablecoin-fetcher.js';
 import { MorphoFetcher } from './services/morpho-fetcher.js';
+import { DataValidator } from './services/data-validator.js';
 // Using unified MorphoFetcher for all Morpho markets
 
 // Initialize logger
@@ -141,6 +142,7 @@ let stablecoinFetcher; // Will be initialized after Redis connection
 class CacheManager {
   constructor(redisClient) {
     this.redis = redisClient;
+    this.validator = new DataValidator();
   }
 
   async get(key) {
@@ -177,23 +179,51 @@ class CacheManager {
   }
 
   /**
-   * Smart caching with different TTLs based on data type
+   * Smart caching with validation and different TTLs based on data type
    */
   async setWithSmartTTL(key, data, dataType = 'default') {
     const ttlConfig = {
-      'protocol-info': 3600, // 24 hours - protocol info changes infrequently
-      'token-price': 3600, // 5 minutes - prices change frequently
-      'protocol-tvl': 3600, // 30 minutes - TVL changes moderately
-      'all-protocols': 3600, // 12 hours - protocol list changes infrequently
-      'market-data': 3600, // 30 minutes - market data changes moderately
+      'protocol-info': 86400, // 24 hours - protocol info changes infrequently
+      'token-price': 300, // 5 minutes - prices change frequently
+      'protocol-tvl': 1800, // 30 minutes - TVL changes moderately
+      'all-protocols': 43200, // 12 hours - protocol list changes infrequently
+      'market-data': 1800, // 30 minutes - market data changes moderately
       'volume-data': 3600, // 1 hour - volume data changes hourly
       'default': 3600 // 1 hour default
     };
 
     const ttl = ttlConfig[dataType] || ttlConfig.default;
-    await this.set(key, data, ttl);
     
-    logger.info(`Smart cache set: ${key} (type: ${dataType}, TTL: ${ttl}s)`);
+    // ENHANCED: Validate data before caching
+    const previousData = await this.get(key);
+    const validation = this.validator.validate(data, previousData, dataType);
+    
+    if (!validation.isValid) {
+      logger.warn(`Data validation failed for ${key}: ${validation.reason}`);
+      
+      // If validation suggests using stale data, try that
+      if (validation.useStale) {
+        const staleKey = `${key}:stale`;
+        const staleData = await this.get(staleKey);
+        
+        if (staleData) {
+          logger.info(`Using stale data for ${key} due to validation failure`);
+          // Extend the TTL on the stale data since we're relying on it
+          await this.redis.expire(staleKey, ttl * 2);
+          
+          // Try to merge good stale values with new data
+          const mergedData = this.validator.mergeWithStaleData(data, staleData);
+          logger.info(`Merged new data with stale data for ${key}`);
+          await this.set(key, mergedData, ttl);
+          return; // Don't cache the invalid data alone
+        } else {
+          logger.warn(`No stale data available for ${key}, data validation failed but caching anyway`);
+        }
+      }
+    }
+    
+    await this.set(key, data, ttl);
+    logger.info(`Smart cache set: ${key} (type: ${dataType}, TTL: ${ttl}s, valid: ${validation.isValid})`);
   }
 
   async cleanup() {
@@ -252,13 +282,13 @@ class CircuitBreaker {
 }
 
 // Create circuit breakers for external services
-const coinGeckoCircuitBreaker = new CircuitBreaker(3, 45000); // Longer timeout for external APIs
-const defiLlamaCircuitBreaker = new CircuitBreaker(3, 45000); // Longer timeout for external APIs
-const theGraphCircuitBreaker = new CircuitBreaker(3, 45000); // Longer timeout for GraphQL queries
-const ethereumCircuitBreaker = new CircuitBreaker(3, 30000); // Moderate timeout for RPC calls
+const coinGeckoCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout to prevent 504 errors
+const defiLlamaCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout to prevent 504 errors
+const theGraphCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout for GraphQL queries
+const ethereumCircuitBreaker = new CircuitBreaker(3, 15000); // Reduced timeout for RPC calls
 
 // Universal helper to safely fetch data with circuit breaker and stale fallback
-async function safeExternalFetch(cacheKey, fetchFunction, circuitBreaker = theGraphCircuitBreaker, timeoutMs = 30000, dataType = 'default') {
+async function safeExternalFetch(cacheKey, fetchFunction, circuitBreaker = theGraphCircuitBreaker, timeoutMs = 8000, dataType = 'default') {
   let data = await cacheManager.get(cacheKey);
   if (data) return data;
 
@@ -303,8 +333,13 @@ app.get('/api/health', async (req, res) => {
       theGraph: theGraphCircuitBreaker.state,
       ethereum: ethereumCircuitBreaker.state
     },
+    coinGeckoQueue: coinGeckoFetcher.getQueueStatus(),
     defiLlamaQueue: defiLlamaFetcher.getQueueStatus(),
     theGraphQueue: theGraphFetcher.getQueueStatus(),
+    curveQueue: curveFetcher.getQueueStatus(),
+    ethereumQueue: ethereumFetcher.getQueueStatus(),
+    fluidQueue: fluidFetcher.getQueueStatus(),
+    morphoQueue: morphoFetcher.getQueueStatus(),
     stablecoinQueue: stablecoinFetcher ? stablecoinFetcher.getQueueStatus() : null
   };
 
@@ -596,12 +631,15 @@ app.get('/api/coingecko/market-data/:coinId', async (req, res) => {
         data = await coinGeckoCircuitBreaker.call(async () => {
           const fetchPromise = coinGeckoFetcher.fetchCoinData(coinId);
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('External API timeout')), 30000)
+            setTimeout(() => reject(new Error('External API timeout')), 8000)
           );
           return Promise.race([fetchPromise, timeoutPromise]);
         });
         
-        await cacheManager.set(cacheKey, data, 3600); // 1 hour
+        // Use shorter TTL for OPEN Index to ensure frequent updates
+        const dataType = coinId === 'open-stablecoin-index' ? 'market-data' : 'default';
+        await cacheManager.setWithSmartTTL(cacheKey, data, dataType);
+        
         logger.info(`Fresh data fetched for ${coinId}:`, { price: data?.current_price, market_cap: data?.market_cap });
       } catch (fetchError) {
         logger.error(`Failed to fetch fresh data for ${coinId}:`, fetchError.message);
@@ -901,6 +939,47 @@ app.post('/api/defillama/batch-token-prices', async (req, res) => {
   }
 });
 
+// Multiple token prices endpoint (simplified interface)
+app.post('/api/defillama/multiple-token-prices', async (req, res) => {
+  try {
+    const { tokenAddresses, chain = 'ethereum' } = req.body;
+    
+    logger.info(`Batch price request for ${tokenAddresses?.length || 0} tokens`);
+    
+    if (!Array.isArray(tokenAddresses) || tokenAddresses.length === 0) {
+      return res.status(400).json({ error: 'Invalid tokenAddresses array' });
+    }
+    
+    // Create a cache key based on the token list
+    const tokenSignature = tokenAddresses.map(addr => `${chain}:${addr.toLowerCase()}`).sort().join(',');
+    const cacheKey = `defillama:multiple-prices:${chain}:${Buffer.from(tokenSignature).toString('base64').slice(0, 32)}`;
+    
+    const data = await safeExternalFetch(
+      cacheKey,
+      async () => {
+        // Convert to the format expected by fetchMultipleTokenPrices
+        const tokenRequests = tokenAddresses.map(address => ({
+          tokenAddress: address,
+          chain: chain
+        }));
+        logger.info(`Fetching ${tokenRequests.length} token prices from DeFiLlama`);
+        return await defiLlamaFetcher.fetchMultipleTokenPrices(tokenRequests);
+      },
+      defiLlamaCircuitBreaker,
+      15000,
+      'token-price'
+    );
+    
+    logger.info(`Returning ${Object.keys(data || {}).length} token prices`);
+    
+    // Return prices in a format the client expects
+    res.json({ prices: data });
+  } catch (error) {
+    logger.error('DeFiLlama multiple token prices error:', error);
+    res.status(500).json({ error: 'Failed to fetch multiple token prices', prices: {} });
+  }
+});
+
 
 
 // getProtocolInfo -> /api/defillama/protocol-info/:protocolSlug
@@ -993,12 +1072,107 @@ app.get('/api/stablecoin/queue-status', async (req, res) => {
   }
 });
 
+// NEW: CoinGecko queue status monitoring endpoint
+app.get('/api/coingecko/queue-status', async (req, res) => {
+  try {
+    const queueStatus = coinGeckoFetcher.getQueueStatus();
+    const healthCheck = await coinGeckoFetcher.healthCheck();
+    
+    res.json({
+      service: 'coingecko',
+      ...queueStatus,
+      health: healthCheck,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('CoinGecko queue status error:', error);
+    res.status(500).json({ error: 'Failed to get CoinGecko queue status' });
+  }
+});
+
+// NEW: Curve queue status monitoring endpoint
+app.get('/api/curve/queue-status', async (req, res) => {
+  try {
+    const queueStatus = curveFetcher.getQueueStatus();
+    const healthCheck = await curveFetcher.healthCheck();
+    
+    res.json({
+      service: 'curve',
+      ...queueStatus,
+      health: healthCheck,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Curve queue status error:', error);
+    res.status(500).json({ error: 'Failed to get Curve queue status' });
+  }
+});
+
+// NEW: Ethereum queue status monitoring endpoint
+app.get('/api/ethereum/queue-status', async (req, res) => {
+  try {
+    const queueStatus = ethereumFetcher.getQueueStatus();
+    const healthCheck = await ethereumFetcher.healthCheck();
+    
+    res.json({
+      service: 'ethereum',
+      ...queueStatus,
+      health: healthCheck,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Ethereum queue status error:', error);
+    res.status(500).json({ error: 'Failed to get Ethereum queue status' });
+  }
+});
+
+// NEW: Fluid queue status monitoring endpoint
+app.get('/api/fluid/queue-status', async (req, res) => {
+  try {
+    const queueStatus = fluidFetcher.getQueueStatus();
+    const healthCheck = await fluidFetcher.healthCheck();
+    
+    res.json({
+      service: 'fluid',
+      ...queueStatus,
+      health: healthCheck,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Fluid queue status error:', error);
+    res.status(500).json({ error: 'Failed to get Fluid queue status' });
+  }
+});
+
+// NEW: Morpho queue status monitoring endpoint
+app.get('/api/morpho/queue-status', async (req, res) => {
+  try {
+    const queueStatus = morphoFetcher.getQueueStatus();
+    const healthCheck = await morphoFetcher.healthCheck();
+    
+    res.json({
+      service: 'morpho',
+      ...queueStatus,
+      health: healthCheck,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Morpho queue status error:', error);
+    res.status(500).json({ error: 'Failed to get Morpho queue status' });
+  }
+});
+
 // NEW: Combined queue status monitoring endpoint
 app.get('/api/admin/queue-status', async (req, res) => {
   try {
     const allQueues = {
+      coinGecko: coinGeckoFetcher.getQueueStatus(),
       defiLlama: defiLlamaFetcher.getQueueStatus(),
       theGraph: theGraphFetcher.getQueueStatus(),
+      curve: curveFetcher.getQueueStatus(),
+      ethereum: ethereumFetcher.getQueueStatus(),
+      fluid: fluidFetcher.getQueueStatus(),
+      morpho: morphoFetcher.getQueueStatus(),
       stablecoin: stablecoinFetcher ? stablecoinFetcher.getQueueStatus() : null,
       timestamp: new Date().toISOString()
     };
@@ -1036,11 +1210,13 @@ app.get('/api/defillama/protocol-tvl-by-chain/:protocolSlug', async (req, res) =
     const { protocolSlug } = req.params;
     const cacheKey = `defillama:tvl-by-chain:${protocolSlug}`;
     
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      data = await defiLlamaFetcher.fetchProtocolTVLByChain(protocolSlug);
-      await cacheManager.set(cacheKey, data, 3600); // 1 hour
-    }
+    const data = await safeExternalFetch(
+      cacheKey,
+      () => defiLlamaFetcher.fetchProtocolTVLByChain(protocolSlug),
+      defiLlamaCircuitBreaker,
+      12000,
+      'protocol-tvl'
+    );
     
     res.json(data);
   } catch (error) {
@@ -1468,11 +1644,11 @@ app.get('/api/fraxswap/token-tvl/:tokenAddress', async (req, res) => {
         data = await theGraphCircuitBreaker.call(async () => {
           const fetchPromise = theGraphFetcher.fetchData('fraxswap', 'token_tvl', { tokenAddress });
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('External API timeout')), 30000)
+            setTimeout(() => reject(new Error('External API timeout')), 8000)
           );
           return Promise.race([fetchPromise, timeoutPromise]);
         });
-        await cacheManager.set(cacheKey, data, 3600);
+        await cacheManager.setWithSmartTTL(cacheKey, data, 'protocol-tvl');
       } catch (fetchError) {
         // Return stale data or default
         const staleKey = `${cacheKey}:stale`;
@@ -2432,28 +2608,38 @@ async function startServer() {
     logger.info(`Environment: NODE_ENV=${process.env.NODE_ENV}`);
     logger.info(`Port: ${PORT}`);
     
-    // Try to connect to Redis
-    logger.info('Connecting to Redis...');
-    await redis.connect();
-    logger.info('Redis connection successful');
+    // Try to connect to Redis (but don't fail if it's not available)
+    try {
+      logger.info('Connecting to Redis...');
+      await redis.connect();
+      logger.info('Redis connection successful');
+      cacheManager = new CacheManager(redis);
+      
+      // Initialize stablecoin fetcher with Redis connection
+      stablecoinFetcher = new StablecoinFetcher(logger, redis);
+    } catch (redisError) {
+      logger.warn('Redis connection failed - service will run without caching:', redisError.message);
+      logger.warn('This may result in slower response times and higher API usage');
+      // Set cacheManager to null - endpoints will handle this gracefully
+      cacheManager = null;
+      stablecoinFetcher = null;
+    }
     
-    cacheManager = new CacheManager(redis);
-    
-    // Initialize stablecoin fetcher with Redis connection
-    stablecoinFetcher = new StablecoinFetcher(logger, redis);
-    
-    // Schedule data refresh every hour as requested
-    cron.schedule('0 * * * *', refreshAllData);
-    
-    // Initial data refresh
-    setTimeout(async () => {
-      logger.info('Starting initial data refresh...');
-      await refreshAllData();
-    }, 5000); // 5 seconds after startup
+    // Schedule data refresh every hour as requested (only if Redis is available)
+    if (cacheManager) {
+      cron.schedule('0 * * * *', refreshAllData);
+      
+      // Initial data refresh
+      setTimeout(async () => {
+        logger.info('Starting initial data refresh...');
+        await refreshAllData();
+      }, 5000); // 5 seconds after startup
+    }
     
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`Cache service running on port ${PORT} (all interfaces)`);
       logger.info('Service fully initialized and ready to accept requests');
+      logger.info(`Redis caching: ${cacheManager ? 'ENABLED' : 'DISABLED'}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
@@ -2469,7 +2655,9 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  await redis.quit();
+  if (redis.isOpen) {
+    await redis.quit();
+  }
   process.exit(0);
 });
 

@@ -1,9 +1,22 @@
 import axios from 'axios';
+import { RequestQueue, generateCacheKey } from './request-queue.js';
 
 export class FluidFetcher {
   constructor() {
     this.baseUrl = 'https://api.fluid.instadapp.io/v2';
-    console.log('FluidFetcher initialized');
+    
+    // Initialize request queue with optimized settings for Fluid API
+    this.requestQueue = new RequestQueue({
+      concurrency: 3, // Conservative for Fluid API
+      requestsPerSecond: 5, // Moderate rate limiting
+      retryAttempts: 2, // Fail faster
+      baseDelay: 1000, // Base delay
+      maxDelay: 20000, // Max delay
+      circuitThreshold: 4, // Circuit breaker threshold
+      circuitTimeout: 60000 // Circuit breaker timeout
+    });
+    
+    console.log('FluidFetcher initialized with request queue');
   }
 
   /**
@@ -13,7 +26,9 @@ export class FluidFetcher {
    * @returns {Promise<object>} - Formatted response data
    */
   async fetchData(queryType, params = {}) {
-    try {
+    const requestKey = generateCacheKey('fluid', queryType, params);
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       console.log(`Fetching Fluid ${queryType} data`);
       
       let result;
@@ -28,16 +43,26 @@ export class FluidFetcher {
           throw new Error(`Unknown query type: ${queryType}`);
       }
 
-      return {
+      const response = {
         protocol: 'fluid',
         queryType,
         data: result,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+
+      console.log(`Successfully fetched Fluid ${queryType} data`);
+      return response;
+    }).catch(error => {
       console.error(`Error fetching Fluid ${queryType} data:`, error.message);
-      throw error;
-    }
+      return {
+        protocol: 'fluid',
+        queryType,
+        data: null,
+        error: error.message,
+        _unavailable: true,
+        fetched_at: new Date().toISOString()
+      };
+    });
   }
 
   /**
@@ -163,6 +188,42 @@ export class FluidFetcher {
     } catch (error) {
       console.error(`Error fetching Fluid supply liquidity for ${tokenAddress}:`, error.message);
       return 0;
+    }
+  }
+
+  /**
+   * Get current request queue status for monitoring
+   */
+  getQueueStatus() {
+    return this.requestQueue.getStatus();
+  }
+
+  /**
+   * Clear the request queue (for cleanup)
+   */
+  clearQueue() {
+    this.requestQueue.clear();
+  }
+
+  /**
+   * Health check method
+   */
+  async healthCheck() {
+    try {
+      const status = this.getQueueStatus();
+      const isHealthy = status.circuitState === 'CLOSED' && status.failureCount < 3;
+      
+      return {
+        healthy: isHealthy,
+        status: status,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
     }
   }
 }

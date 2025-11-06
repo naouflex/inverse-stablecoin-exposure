@@ -639,6 +639,28 @@ export class TheGraphFetcher {
   }
 
   /**
+   * Health check method
+   */
+  async healthCheck() {
+    try {
+      const status = this.getQueueStatus();
+      const isHealthy = status.circuitState === 'CLOSED' && status.failureCount < 5;
+      
+      return {
+        healthy: isHealthy,
+        status: status,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
    * Fetch filtered TVL for a token excluding same-protocol stablecoin pairs
    * @param {string} protocol - Protocol name (uniswap_v2, uniswap_v3, sushi_v2, sushi_v3, balancer)
    * @param {string} tokenAddress - The token contract address

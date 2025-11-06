@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { RequestQueue, generateCacheKey } from './request-queue.js';
 
 export class CoinGeckoFetcher {
   constructor() {
@@ -8,6 +9,19 @@ export class CoinGeckoFetcher {
     if (!this.apiKey) {
       throw new Error('COINGECKO_API_KEY environment variable is required');
     }
+
+    // Initialize request queue with optimized rate limits for CoinGecko Pro
+    this.requestQueue = new RequestQueue({
+      concurrency: 4, // CoinGecko Pro allows moderate concurrency
+      requestsPerSecond: 6, // Conservative rate limiting for Pro API
+      retryAttempts: 2, // Reduced from 3 - fail faster
+      baseDelay: 1000, // Base delay for exponential backoff
+      maxDelay: 20000, // Max delay
+      circuitThreshold: 4, // Circuit breaker threshold
+      circuitTimeout: 60000 // Circuit breaker timeout
+    });
+    
+    console.log('CoinGeckoFetcher initialized with request queue');
   }
 
   getHeaders() {
@@ -18,7 +32,9 @@ export class CoinGeckoFetcher {
   }
 
   async fetchCoinData(coinId) {
-    try {
+    const requestKey = generateCacheKey('coingecko', 'coin-data', { coinId });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const url = `${this.baseUrl}/coins/${coinId}`;
       const params = {
         localization: false,
@@ -42,11 +58,11 @@ export class CoinGeckoFetcher {
 
       if (!marketData) {
         console.error('No market_data in CoinGecko response:', data);
-        return this.getEmptyMarketData();
+        throw new Error('No market_data in response');
       }
 
       // Format the response similar to your existing service
-      return {
+      const result = {
         id: data.id,
         symbol: data.symbol,
         name: data.name,
@@ -67,12 +83,19 @@ export class CoinGeckoFetcher {
         last_updated: data.last_updated,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+
+      console.log(`Successfully fetched CoinGecko data for ${coinId}: $${result.current_price}`);
+      return result;
+    }).catch(error => {
       console.error(`Error fetching CoinGecko data for ${coinId}:`, error.message);
       
-      // Return empty data structure on error
-      return this.getEmptyMarketData();
-    }
+      // Return error structure that matches other fetchers
+      return {
+        ...this.getEmptyMarketData(),
+        error: error.message,
+        _unavailable: true
+      };
+    });
   }
 
   async fetchTop100Coins() {
@@ -198,7 +221,9 @@ export class CoinGeckoFetcher {
   }
 
   async fetch30dVolume(coinId) {
-    try {
+    const requestKey = generateCacheKey('coingecko', '30d-volume', { coinId });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const url = `${this.baseUrl}/coins/${coinId}`;
       const params = {
         localization: false,
@@ -219,21 +244,25 @@ export class CoinGeckoFetcher {
 
       const marketData = response.data.market_data;
       return {
-        volume_30d: marketData?.total_volume?.usd || 0,
+        volume_30d: marketData?.total_volume?.usd || null,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching CoinGecko 30d volume for ${coinId}:`, error.message);
+      // Return null instead of 0 to indicate unavailable data
       return {
-        volume_30d: 0,
+        volume_30d: null,
         error: 'Failed to fetch 30d volume data',
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async fetch24hVolume(coinId) {
-    try {
+    const requestKey = generateCacheKey('coingecko', '24h-volume', { coinId });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const url = `${this.baseUrl}/coins/${coinId}`;
       const params = {
         localization: false,
@@ -254,21 +283,24 @@ export class CoinGeckoFetcher {
 
       const marketData = response.data.market_data;
       return {
-        volume_24h: marketData?.total_volume?.usd || 0,
+        volume_24h: marketData?.total_volume?.usd || null,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching CoinGecko 24h volume for ${coinId}:`, error.message);
       return {
-        volume_24h: 0,
+        volume_24h: null,
         error: 'Failed to fetch 24h volume data',
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async fetchMarketCap(coinId) {
-    try {
+    const requestKey = generateCacheKey('coingecko', 'market-cap', { coinId });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const url = `${this.baseUrl}/coins/${coinId}`;
       const params = {
         localization: false,
@@ -289,21 +321,24 @@ export class CoinGeckoFetcher {
 
       const marketData = response.data.market_data;
       return {
-        market_cap: marketData?.market_cap?.usd || 0,
+        market_cap: marketData?.market_cap?.usd || null,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching CoinGecko market cap for ${coinId}:`, error.message);
       return {
-        market_cap: 0,
+        market_cap: null,
         error: 'Failed to fetch market cap data',
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async fetchFDV(coinId) {
-    try {
+    const requestKey = generateCacheKey('coingecko', 'fdv', { coinId });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const url = `${this.baseUrl}/coins/${coinId}`;
       const params = {
         localization: false,
@@ -324,17 +359,18 @@ export class CoinGeckoFetcher {
 
       const marketData = response.data.market_data;
       return {
-        fdv: marketData?.fully_diluted_valuation?.usd || 0,
+        fdv: marketData?.fully_diluted_valuation?.usd || null,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching CoinGecko FDV for ${coinId}:`, error.message);
       return {
-        fdv: 0,
+        fdv: null,
         error: 'Failed to fetch FDV data',
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async fetchTopExchanges(coinId) {
@@ -447,5 +483,41 @@ export class CoinGeckoFetcher {
       error: 'Failed to fetch data',
       fetched_at: new Date().toISOString()
     };
+  }
+
+  /**
+   * Get current request queue status for monitoring
+   */
+  getQueueStatus() {
+    return this.requestQueue.getStatus();
+  }
+
+  /**
+   * Clear the request queue (for cleanup)
+   */
+  clearQueue() {
+    this.requestQueue.clear();
+  }
+
+  /**
+   * Health check method
+   */
+  async healthCheck() {
+    try {
+      const status = this.getQueueStatus();
+      const isHealthy = status.circuitState === 'CLOSED' && status.failureCount < 3;
+      
+      return {
+        healthy: isHealthy,
+        status: status,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
   }
 } 

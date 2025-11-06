@@ -8,7 +8,7 @@ const CACHE_API_BASE = '/api'; // Proxied to cache service via Nginx
 // Create axios instance for cache service
 const cacheApi = axios.create({
   baseURL: CACHE_API_BASE,
-  timeout: 90000, // 90s timeout - matches frontend timeout, gives staggered loading time to complete
+  timeout: 25000, // 25s timeout - matches server timeout settings, prevents 504 errors
 });
 
 // Add request/response interceptors for debugging
@@ -19,11 +19,32 @@ cacheApi.interceptors.request.use(request => {
 
 cacheApi.interceptors.response.use(
   response => {
-    console.log('API Response:', response.status, response.config.url, response.data);
+    console.log('API Response:', response.status, response.config.url);
+    
+    // Log if we're getting stale data
+    if (response.data?._stale) {
+      console.warn('Stale data returned for:', response.config.url);
+    }
+    
+    // Log if data is unavailable
+    if (response.data?._unavailable) {
+      console.warn('Unavailable data returned for:', response.config.url);
+    }
+    
     return response;
   },
   error => {
     console.error('API Error:', error.config?.url, error.response?.status, error.message);
+    
+    // Enhanced error handling for timeout and service unavailable
+    if (error.code === 'ECONNABORTED') {
+      console.error('Request timeout - cache service may be overloaded');
+    } else if (error.response?.status === 503) {
+      console.error('Cache service temporarily unavailable');
+    } else if (error.response?.status === 408) {
+      console.error('Request timeout from cache service');
+    }
+    
     return Promise.reject(error);
   }
 );
@@ -43,6 +64,13 @@ export async function fetchCoinGeckoMarketData(coinId) {
 export async function fetchCoinGecko30dVolume(coinId) {
   try {
     const response = await cacheApi.get(`/coingecko/30d-volume/${coinId}`);
+    
+    // Handle _unavailable flag
+    if (response.data?._unavailable) {
+      console.warn(`CoinGecko 30d volume unavailable for ${coinId}`);
+      return 0;
+    }
+    
     // Return the volume value directly, not the nested object
     return response.data?.volume_30d || 0;
   } catch (error) {
@@ -54,6 +82,13 @@ export async function fetchCoinGecko30dVolume(coinId) {
 export async function fetchCoinGecko24hVolume(coinId) {
   try {
     const response = await cacheApi.get(`/coingecko/24h-volume/${coinId}`);
+    
+    // Handle _unavailable flag
+    if (response.data?._unavailable) {
+      console.warn(`CoinGecko 24h volume unavailable for ${coinId}`);
+      return 0;
+    }
+    
     // Return the volume value directly, not the nested object
     return response.data?.volume_24h || 0;
   } catch (error) {
@@ -145,6 +180,13 @@ export function getCirculatingSupplyRaw(allMetrics) {
 export async function fetchDefiLlamaTVLDirect(protocolSlug) {
   try {
     const response = await cacheApi.get(`/defillama/tvl/${protocolSlug}`);
+    
+    // Handle _unavailable flag
+    if (response.data?._unavailable) {
+      console.warn(`DeFiLlama TVL unavailable for ${protocolSlug}`);
+      return 0;
+    }
+    
     return response.data?.tvl || 0;
   } catch (error) {
     console.error(`Error fetching DeFiLlama TVL for ${protocolSlug}:`, error);
@@ -155,6 +197,13 @@ export async function fetchDefiLlamaTVLDirect(protocolSlug) {
 export async function getTokenPrice(tokenAddress, chain = 'ethereum') {
   try {
     const response = await cacheApi.get(`/defillama/token-price/${tokenAddress}?chain=${chain}`);
+    
+    // Handle _unavailable flag
+    if (response.data?._unavailable) {
+      console.warn(`Token price unavailable for ${chain}:${tokenAddress}`);
+      return null;
+    }
+    
     return response.data?.price || null;
   } catch (error) {
     console.error(`Error fetching token price for ${tokenAddress}:`, error);
@@ -168,7 +217,27 @@ export async function getMultipleTokenPrices(tokenAddresses, chain = 'ethereum')
       tokenAddresses,
       chain
     });
-    return response.data?.prices || {};
+    
+    const prices = response.data?.prices || {};
+    
+    // Filter out unavailable prices and log warnings
+    const availablePrices = {};
+    let unavailableCount = 0;
+    
+    for (const [tokenKey, tokenData] of Object.entries(prices)) {
+      if (tokenData?._unavailable) {
+        console.warn(`Token price unavailable: ${tokenKey}`);
+        unavailableCount++;
+      } else {
+        availablePrices[tokenKey] = tokenData;
+      }
+    }
+    
+    if (unavailableCount > 0) {
+      console.info(`Multiple token prices: ${Object.keys(availablePrices).length} available, ${unavailableCount} unavailable`);
+    }
+    
+    return availablePrices;
   } catch (error) {
     console.error('Error fetching multiple token prices:', error);
     return {};
@@ -210,9 +279,16 @@ export async function getProtocolTVLHistory(protocolSlug, startDate = null, endD
 }
 
 export async function getProtocolTVLByChain(protocolSlug) {
-  const response = await cacheApi.get(`/defillama/protocol-tvl-by-chain/${protocolSlug}`);
-  return response.data;
+  try {
+    const response = await cacheApi.get(`/defillama/protocol-tvl-by-chain/${protocolSlug}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching protocol TVL by chain for ${protocolSlug}:`, error);
+    return { data: {}, _unavailable: true };
+  }
 }
+
+
 
 // ================= ETHEREUM CACHE FUNCTIONS =================
 
@@ -1218,5 +1294,191 @@ export async function getBatchPoolTVLs(poolConfigs) {
   } catch (error) {
     console.error('Error in batch pool TVL fetching:', error.message);
     return [];
+  }
+}
+
+// ================= NEW ENDPOINTS & MONITORING =================
+
+
+
+
+// ================= HEALTH & MONITORING FUNCTIONS =================
+
+export async function getCacheServiceHealth() {
+  try {
+    const response = await cacheApi.get('/health');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching cache service health:', error);
+    return {
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+export async function getAllQueueStatus() {
+  try {
+    const response = await cacheApi.get('/admin/queue-status');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching queue status:', error);
+    return {
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+export async function getServiceQueueStatus(service) {
+  try {
+    const response = await cacheApi.get(`/${service}/queue-status`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching ${service} queue status:`, error);
+    return {
+      service,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+export async function flushCache() {
+  try {
+    const response = await cacheApi.get('/admin/flush-cache');
+    return response.data;
+  } catch (error) {
+    console.error('Error flushing cache:', error);
+    throw error;
+  }
+}
+
+export async function cleanCache(type, pattern, confirm = false) {
+  try {
+    const response = await cacheApi.post('/admin/clean-cache', {
+      type,
+      pattern,
+      confirm
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error cleaning cache:', error);
+    throw error;
+  }
+}
+
+export async function getCacheStats() {
+  try {
+    const response = await cacheApi.get('/admin/cache-stats');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching cache stats:', error);
+    throw error;
+  }
+}
+
+export async function getLastRefreshTime() {
+  try {
+    const response = await cacheApi.get('/cache/last-refresh');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching last refresh time:', error);
+    return {
+      lastRefresh: null,
+      error: error.message
+    };
+  }
+}
+
+// ================= MANUAL DATA FUNCTIONS =================
+
+export async function getManualData(symbol, metric) {
+  try {
+    const response = await cacheApi.get(`/manual-data/${symbol}/${metric}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching manual data for ${symbol}/${metric}:`, error);
+    return {
+      success: true,
+      data: null,
+      metadata: {
+        symbol,
+        metric,
+        message: 'No manual data available'
+      }
+    };
+  }
+}
+
+export async function getAllManualData(symbol) {
+  try {
+    const response = await cacheApi.get(`/manual-data/${symbol}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching all manual data for ${symbol}:`, error);
+    return {
+      success: true,
+      symbol,
+      data: {},
+      source: 'manual_entry'
+    };
+  }
+}
+
+// ================= ENHANCED ERROR HANDLING HELPERS =================
+
+/**
+ * Safe wrapper for cache API calls with fallback values
+ * @param {Function} apiCall - The API call function
+ * @param {*} fallbackValue - Value to return on error
+ * @param {string} errorContext - Context for error logging
+ * @returns {Promise<*>} - API result or fallback value
+ */
+export async function safeApiCall(apiCall, fallbackValue, errorContext = 'API call') {
+  try {
+    const result = await apiCall();
+    
+    // If result has _unavailable flag, return fallback
+    if (result?._unavailable) {
+      console.warn(`${errorContext}: Data unavailable, using fallback`);
+      return fallbackValue;
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`${errorContext} failed:`, error.message);
+    return fallbackValue;
+  }
+}
+
+/**
+ * Enhanced data fetcher that handles stale data gracefully
+ * @param {Function} apiCall - The API call function
+ * @param {*} fallbackValue - Value to return on error
+ * @param {boolean} acceptStale - Whether to accept stale data
+ * @returns {Promise<*>} - API result, stale data, or fallback value
+ */
+export async function fetchWithStaleSupport(apiCall, fallbackValue, acceptStale = true) {
+  try {
+    const result = await apiCall();
+    
+    // If data is stale but acceptable, log and return
+    if (result?._stale && acceptStale) {
+      console.info('Using stale data (acceptable)');
+      return result;
+    }
+    
+    // If data is unavailable, return fallback
+    if (result?._unavailable) {
+      console.warn('Data unavailable, using fallback');
+      return fallbackValue;
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Fetch with stale support failed:', error.message);
+    return fallbackValue;
   }
 } 

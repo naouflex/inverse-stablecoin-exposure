@@ -1,9 +1,22 @@
 import axios from 'axios';
+import { RequestQueue, generateCacheKey } from './request-queue.js';
 
 export class CurveFetcher {
   constructor() {
     this.baseUrl = 'https://api.curve.finance/v1';
-    console.log('CurveFetcher initialized');
+    
+    // Initialize request queue with optimized settings for Curve API
+    this.requestQueue = new RequestQueue({
+      concurrency: 3, // Curve API is more conservative
+      requestsPerSecond: 4, // Conservative rate limiting
+      retryAttempts: 2, // Fail faster
+      baseDelay: 1500, // Slightly longer base delay
+      maxDelay: 20000, // Max delay
+      circuitThreshold: 4, // Circuit breaker threshold
+      circuitTimeout: 60000 // Circuit breaker timeout
+    });
+    
+    console.log('CurveFetcher initialized with request queue');
   }
 
   /**
@@ -13,7 +26,9 @@ export class CurveFetcher {
    * @returns {Promise<object>} - Formatted response data
    */
   async fetchData(queryType, params = {}) {
-    try {
+    const requestKey = generateCacheKey('curve', queryType, params);
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       console.log(`Fetching Curve ${queryType} data`);
       
       let result;
@@ -31,16 +46,27 @@ export class CurveFetcher {
           throw new Error(`Unknown query type: ${queryType}`);
       }
 
-      return {
+      const response = {
         protocol: 'curve',
         queryType,
         data: result,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+
+      console.log(`Successfully fetched Curve ${queryType} data`);
+      return response;
+    }).catch(error => {
       console.error(`Error fetching Curve ${queryType} data:`, error.message);
-      throw error;
-    }
+      // Return error object with null data and _unavailable flag
+      return {
+        protocol: 'curve',
+        queryType,
+        data: null,
+        error: error.message,
+        _unavailable: true,
+        fetched_at: new Date().toISOString()
+      };
+    });
   }
 
   /**
@@ -49,8 +75,12 @@ export class CurveFetcher {
    * @returns {Promise<number>} - Total Value Locked in USD across all pools containing the token
    */
   async fetchTokenTVL(tokenAddress) {
-    try {
+    const requestKey = generateCacheKey('curve', 'token-tvl-internal', { tokenAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const url = `${this.baseUrl}/getPools/all/ethereum`;
+      console.log(`Fetching Curve pools data for TVL calculation: ${tokenAddress}`);
+      
       const response = await axios.get(url, { timeout: 8000 });
       
       let totalTVL = 0;
@@ -87,11 +117,12 @@ export class CurveFetcher {
         }
       }
       
+      console.log(`Total Curve TVL for ${tokenAddress}: $${totalTVL.toFixed(2)}`);
       return totalTVL;
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching Curve TVL for ${tokenAddress}:`, error.message);
-      return 0;
-    }
+      throw error; // Let fetchData handle the error formatting
+    });
   }
 
   /**
@@ -100,7 +131,11 @@ export class CurveFetcher {
    * @returns {Promise<number>} - 24h volume in USD
    */
   async fetchTokenVolume(tokenAddress) {
-    try {
+    const requestKey = generateCacheKey('curve', 'token-volume-internal', { tokenAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
+      console.log(`Fetching Curve volume data for: ${tokenAddress}`);
+      
       // First get all pools to find which ones contain our token
       const poolUrl = `${this.baseUrl}/getPools/all/ethereum`;
       const poolResponse = await axios.get(poolUrl, { timeout: 8000 });
@@ -133,11 +168,12 @@ export class CurveFetcher {
         }
       }
       
+      console.log(`Total Curve volume for ${tokenAddress}: $${totalVolume.toFixed(2)}`);
       return totalVolume;
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching Curve volume for ${tokenAddress}:`, error.message);
-      return 0;
-    }
+      throw error; // Let fetchData handle the error formatting
+    });
   }
 
   /**
@@ -145,19 +181,24 @@ export class CurveFetcher {
    * @returns {Promise<object>} - All pools data from Curve API
    */
   async fetchAllPools() {
-    try {
+    const requestKey = generateCacheKey('curve', 'all-pools-internal', {});
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
+      console.log('Fetching all Curve pools data');
+      
       const url = `${this.baseUrl}/getPools/all/ethereum`;
       const response = await axios.get(url, { timeout: 8000 });
       
       if (response.data.success && response.data.data) {
+        console.log(`Successfully fetched ${response.data.data.poolData?.length || 0} Curve pools`);
         return response.data.data;
       }
       
-      return null;
-    } catch (error) {
+      throw new Error('Invalid response structure from Curve API');
+    }).catch(error => {
       console.error('Error fetching all Curve pools:', error.message);
-      return null;
-    }
+      throw error; // Let fetchData handle the error formatting
+    });
   }
 
   /**
@@ -165,19 +206,24 @@ export class CurveFetcher {
    * @returns {Promise<object>} - All volumes data from Curve API
    */
   async fetchAllVolumes() {
-    try {
+    const requestKey = generateCacheKey('curve', 'all-volumes-internal', {});
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
+      console.log('Fetching all Curve volumes data');
+      
       const url = `${this.baseUrl}/getVolumes/ethereum`;
       const response = await axios.get(url, { timeout: 8000 });
       
       if (response.data.success && response.data.data) {
+        console.log(`Successfully fetched ${response.data.data.pools?.length || 0} Curve pool volumes`);
         return response.data.data;
       }
       
-      return null;
-    } catch (error) {
+      throw new Error('Invalid response structure from Curve API');
+    }).catch(error => {
       console.error('Error fetching all Curve volumes:', error.message);
-      return null;
-    }
+      throw error;
+    });
   }
 
   /**
@@ -346,5 +392,41 @@ export class CurveFetcher {
     }
     
     return false;
+  }
+
+  /**
+   * Get current request queue status for monitoring
+   */
+  getQueueStatus() {
+    return this.requestQueue.getStatus();
+  }
+
+  /**
+   * Clear the request queue (for cleanup)
+   */
+  clearQueue() {
+    this.requestQueue.clear();
+  }
+
+  /**
+   * Health check method
+   */
+  async healthCheck() {
+    try {
+      const status = this.getQueueStatus();
+      const isHealthy = status.circuitState === 'CLOSED' && status.failureCount < 3;
+      
+      return {
+        healthy: isHealthy,
+        status: status,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
   }
 } 

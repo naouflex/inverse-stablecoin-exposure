@@ -1,9 +1,23 @@
 import axios from 'axios';
+import { RequestQueue, generateCacheKey } from './request-queue.js';
 
 export class EthereumFetcher {
   constructor() {
     this.primaryRpcUrl = process.env.ETH_RPC_URL || 'https://eth.llamarpc.com';
     this.fallbackRpcUrl = process.env.ETH_RPC_URL_FALLBACK || 'https://rpc.ankr.com/eth';
+    
+    // Initialize request queue with optimized settings for Ethereum RPC
+    this.requestQueue = new RequestQueue({
+      concurrency: 6, // Ethereum RPC can handle more concurrent requests
+      requestsPerSecond: 10, // Higher rate limit for RPC calls
+      retryAttempts: 2, // Fail faster for RPC calls
+      baseDelay: 500, // Shorter base delay for RPC
+      maxDelay: 10000, // Shorter max delay
+      circuitThreshold: 5, // More tolerant for RPC calls
+      circuitTimeout: 30000 // Shorter timeout for RPC recovery
+    });
+    
+    console.log('EthereumFetcher initialized with request queue');
   }
 
   async makeRpcCall(method, params = []) {
@@ -60,7 +74,9 @@ export class EthereumFetcher {
 
   // Public API methods (used by endpoints)
   async getTokenBalanceFormatted(tokenAddress, holderAddress) {
-    try {
+    const requestKey = generateCacheKey('ethereum', 'token-balance', { tokenAddress, holderAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const balance = await this.getTokenBalance(tokenAddress, holderAddress);
       return {
         tokenAddress,
@@ -69,92 +85,104 @@ export class EthereumFetcher {
         balanceHex: balance.balanceHex,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching token balance:`, error.message);
       return {
         tokenAddress,
         holderAddress,
-        balance: 0,
+        balance: null,
         error: error.message,
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async getTokenDecimalsFormatted(tokenAddress) {
-    try {
+    const requestKey = generateCacheKey('ethereum', 'token-decimals', { tokenAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const decimals = await this.getTokenDecimals(tokenAddress);
       return {
         tokenAddress,
         decimals,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       return {
         tokenAddress,
         decimals: 18,
         error: error.message,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async getTokenNameFormatted(tokenAddress) {
-    try {
+    const requestKey = generateCacheKey('ethereum', 'token-name', { tokenAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const name = await this.getTokenName(tokenAddress);
       return {
         tokenAddress,
         name,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       return {
         tokenAddress,
         name: 'Unknown',
         error: error.message,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async getTokenSymbolFormatted(tokenAddress) {
-    try {
+    const requestKey = generateCacheKey('ethereum', 'token-symbol', { tokenAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const symbol = await this.getTokenSymbol(tokenAddress);
       return {
         tokenAddress,
         symbol,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       return {
         tokenAddress,
         symbol: 'UNKNOWN',
         error: error.message,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async getTotalSupplyFormatted(tokenAddress) {
-    try {
+    const requestKey = generateCacheKey('ethereum', 'total-supply', { tokenAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const totalSupply = await this.getTokenTotalSupply(tokenAddress);
       return {
         tokenAddress,
         totalSupply,
         fetched_at: new Date().toISOString()
       };
-    } catch (error) {
+    }).catch(error => {
       return {
         tokenAddress,
-        totalSupply: 0,
+        totalSupply: null,
         error: error.message,
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async fetchData(method, params = {}) {
-    try {
+    const requestKey = generateCacheKey('ethereum', method, params);
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       console.log(`Fetching Ethereum ${method} data`);
       
       switch (method) {
@@ -176,15 +204,16 @@ export class EthereumFetcher {
         default:
           throw new Error(`Unknown method: ${method}`);
       }
-    } catch (error) {
+    }).catch(error => {
       console.error(`Error fetching Ethereum ${method} data:`, error.message);
       return {
         method,
         data: null,
         error: error.message,
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
-    }
+    });
   }
 
   async getCurrentBlock() {
@@ -278,6 +307,7 @@ export class EthereumFetcher {
         method: 'tokenInfo',
         tokenAddress: tokenAddress,
         error: error.message,
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
     }
@@ -355,7 +385,8 @@ export class EthereumFetcher {
       
       return parseInt(result, 16);
     } catch (error) {
-      return 0;
+      // Throw error instead of returning 0
+      throw error;
     }
   }
 
@@ -379,12 +410,15 @@ export class EthereumFetcher {
       
       return parseInt(result, 16);
     } catch (error) {
-      return 0;
+      // Throw error instead of returning 0
+      throw error;
     }
   }
 
   async getAllowanceFormatted(tokenAddress, ownerAddress, spenderAddress) {
-    try {
+    const requestKey = generateCacheKey('ethereum', 'allowance', { tokenAddress, ownerAddress, spenderAddress });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const [allowance, decimals] = await Promise.all([
         this.getAllowance(tokenAddress, ownerAddress, spenderAddress),
         this.getTokenDecimals(tokenAddress)
@@ -399,11 +433,20 @@ export class EthereumFetcher {
         decimals,
         tokenAddress,
         ownerAddress,
-        spenderAddress
+        spenderAddress,
+        fetched_at: new Date().toISOString()
       };
-    } catch (error) {
-      throw new Error(`Failed to get allowance: ${error.message}`);
-    }
+    }).catch(error => {
+      return {
+        tokenAddress,
+        ownerAddress,
+        spenderAddress,
+        allowance: null,
+        error: error.message,
+        _unavailable: true,
+        fetched_at: new Date().toISOString()
+      };
+    });
   }
 
   decodeString(hexData) {
@@ -428,4 +471,52 @@ export class EthereumFetcher {
     
     return result;
   }
-} 
+
+  /**
+   * Get exchange rate from Curve pool using get_dy function
+   * @param {string} poolAddress - Curve pool address
+   * @param {number} i - Index of input token
+   * @param {number} j - Index of output token  
+   * @param {string} dx - Amount of input token (in wei/smallest unit)
+   * @returns {Promise<object>} - Exchange rate information
+   */
+ 
+
+  /**
+   * Get current request queue status for monitoring
+   */
+  getQueueStatus() {
+    return this.requestQueue.getStatus();
+  }
+
+  /**
+   * Clear the request queue (for cleanup)
+   */
+  clearQueue() {
+    this.requestQueue.clear();
+  }
+
+  /**
+   * Health check method
+   */
+  async healthCheck() {
+    try {
+      const status = this.getQueueStatus();
+      const isHealthy = status.circuitState === 'CLOSED' && status.failureCount < 5;
+      
+      return {
+        healthy: isHealthy,
+        status: status,
+        primaryRpc: this.primaryRpcUrl,
+        fallbackRpc: this.fallbackRpcUrl,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+}

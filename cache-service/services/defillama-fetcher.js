@@ -3,19 +3,31 @@ import { RequestQueue, generateCacheKey } from './request-queue.js';
 
 export class DefiLlamaFetcher {
   constructor() {
-    this.baseUrl = 'https://api.llama.fi';
-    this.priceUrl = 'https://coins.llama.fi'; // Separate URL for price endpoints
+    // Get API key from environment (check both uppercase and lowercase for compatibility)
+    this.apiKey = process.env.DEFILLAMA_API_KEY ;
     
-    // Initialize request queue with optimized rate limits for DefiLlama
-    // Balanced settings for both DeFi and Stablecoin dashboards
+    if (!this.apiKey) {
+      console.warn('Warning: DEFILLAMA_API_KEY not found in environment. Using free API endpoints.');
+      this.baseUrl = 'https://api.llama.fi';
+      this.priceUrl = 'https://coins.llama.fi';
+    } else {
+      // Use Pro API endpoints with API key
+      // Pro API format: https://pro-api.llama.fi/{apiKey}/api/... for protocols
+      // Pro API format: https://pro-api.llama.fi/{apiKey}/coins/... for prices
+      this.baseUrl = `https://pro-api.llama.fi/${this.apiKey}/api`;
+      this.priceUrl = `https://pro-api.llama.fi/${this.apiKey}/coins`;
+      console.log('DefiLlamaFetcher initialized with Pro API');
+    }
+    
+    // Initialize request queue with conservative rate limits for DefiLlama
     this.requestQueue = new RequestQueue({
-      concurrency: 5, // Increased from 2 - handle more parallel requests
-      requestsPerSecond: 8, // Increased from 3 - internal cache service requests
-      retryAttempts: 2, // Reduced from 3 - fail faster
-      baseDelay: 1000, // Reduced from 2000ms
-      maxDelay: 30000, // Reduced from 60000ms
-      circuitThreshold: 5, // Increased from 3 - more tolerant
-      circuitTimeout: 90000 // Reduced from 120000ms
+      concurrency: 2, // Max 2 concurrent requests
+      requestsPerSecond: 3, // Conservative rate limit (3 requests per second)
+      retryAttempts: 3,
+      baseDelay: 2000, // Start with 2s delay
+      maxDelay: 60000, // Max 1 minute delay
+      circuitThreshold: 3, // Open circuit after 3 failures
+      circuitTimeout: 120000 // 2 minutes timeout
     });
     
     // Batch processing for token prices
@@ -78,8 +90,9 @@ export class DefiLlamaFetcher {
       console.error(`Error fetching DeFiLlama TVL for ${protocolSlug}:`, error.message);
       return {
         protocol: protocolSlug,
-        tvl: 0,
+        tvl: null,
         error: error.message,
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
     });
@@ -92,8 +105,12 @@ export class DefiLlamaFetcher {
     });
     
     return this.requestQueue.enqueue(requestKey, async () => {
-      const url = `${this.priceUrl}/prices/current/${chain}:${tokenAddress.toLowerCase()}`;
-      console.log(`Fetching token price for: ${chain}:${tokenAddress}`);
+      // Construct the coin identifier (chain:address format)
+      const coinId = `${chain}:${tokenAddress.toLowerCase()}`;
+      // DON'T encode the coin ID - DeFiLlama expects unencoded chain:address format
+      const url = `${this.priceUrl}/prices/current/${coinId}`;
+      console.log(`Fetching token price for: ${coinId}`);
+      console.log(`Full URL: ${url}`); // Debug log to see the exact URL
       
       const response = await axios.get(url, { 
         timeout: 10000,
@@ -130,12 +147,20 @@ export class DefiLlamaFetcher {
         fetched_at: new Date().toISOString()
       };
     }).catch(error => {
-      console.error(`Error fetching token price for ${chain}:${tokenAddress}:`, error.message);
+      // Enhanced error logging for 503 and rate limit errors
+      if (error.response?.status === 503) {
+        console.error(`DeFiLlama API unavailable (503) for ${chain}:${tokenAddress}. Consider using Pro API key to avoid rate limits.`);
+      } else if (error.response?.status === 429) {
+        console.error(`DeFiLlama rate limit exceeded for ${chain}:${tokenAddress}. Pro API key recommended.`);
+      } else {
+        console.error(`Error fetching token price for ${chain}:${tokenAddress}:`, error.message);
+      }
+      
       return {
         address: tokenAddress,
         chain: chain,
         price: null,
-        error: error.message,
+        error: error.response?.status === 503 ? 'Service temporarily unavailable' : error.message,
         fetched_at: new Date().toISOString()
       };
     });
@@ -167,10 +192,12 @@ export class DefiLlamaFetcher {
       
       try {
         const batchResult = await this.requestQueue.enqueue(batchKey, async () => {
+          // Create comma-separated list of coin IDs (DON'T encode - DeFiLlama expects raw format)
           const addressString = addresses.map(addr => `${chain}:${addr}`).join(',');
           const url = `${this.priceUrl}/prices/current/${addressString}`;
           
           console.log(`Batch fetching ${addresses.length} token prices for ${chain}`);
+          console.log(`Batch URL: ${url}`);
           
           const response = await axios.get(url, { 
             timeout: 15000, // Longer timeout for batch requests
@@ -189,26 +216,47 @@ export class DefiLlamaFetcher {
             const tokenKey = `${chain}:${address}`;
             const coinData = batchResult.coins[tokenKey];
             
-            results[tokenKey] = coinData ? {
-              address: address,
-              chain: chain,
-              price: coinData.price,
-              symbol: coinData.symbol || '',
-              decimals: coinData.decimals || 18,
-              timestamp: coinData.timestamp,
-              fetched_at: new Date().toISOString()
-            } : {
+            if (coinData && coinData.price !== null && coinData.price !== undefined) {
+              results[tokenKey] = {
+                address: address,
+                chain: chain,
+                price: coinData.price,
+                symbol: coinData.symbol || '',
+                decimals: coinData.decimals || 18,
+                timestamp: coinData.timestamp,
+                fetched_at: new Date().toISOString()
+              };
+            } else {
+              // Price not found in response - mark as unavailable
+              results[tokenKey] = {
+                address: address,
+                chain: chain,
+                price: null,
+                error: 'Price not found in DefiLlama response',
+                _unavailable: true,
+                fetched_at: new Date().toISOString()
+              };
+              console.warn(`DefiLlama: Price not found for ${tokenKey}`);
+            }
+          }
+        } else {
+          // No coins object in response
+          console.warn(`DefiLlama: No coins object in batch response for ${chain}`);
+          for (const address of addresses) {
+            const tokenKey = `${chain}:${address}`;
+            results[tokenKey] = {
               address: address,
               chain: chain,
               price: null,
-              error: 'Price not found',
+              error: 'Invalid response structure',
+              _unavailable: true,
               fetched_at: new Date().toISOString()
             };
           }
         }
       } catch (error) {
         console.error(`Error batch fetching prices for ${chain}:`, error.message);
-        // Add error results for this chain
+        // Add error results for this chain with _unavailable flag
         for (const address of addresses) {
           const tokenKey = `${chain}:${address}`;
           results[tokenKey] = {
@@ -216,6 +264,7 @@ export class DefiLlamaFetcher {
             chain: chain,
             price: null,
             error: error.message,
+            _unavailable: true,
             fetched_at: new Date().toISOString()
           };
         }
@@ -266,6 +315,7 @@ export class DefiLlamaFetcher {
       return {
         id: protocolSlug,
         error: error.message,
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
     });
@@ -305,6 +355,7 @@ export class DefiLlamaFetcher {
       return {
         protocols: [],
         error: error.message,
+        _unavailable: true,
         fetched_at: new Date().toISOString()
       };
     });
@@ -347,7 +398,13 @@ export class DefiLlamaFetcher {
   }
 
   async fetchProtocolTVLHistory(protocolSlug, startDate = null, endDate = null) {
-    try {
+    const requestKey = generateCacheKey('defillama', 'protocol-tvl-history', { 
+      slug: protocolSlug, 
+      startDate, 
+      endDate 
+    });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       let url = `${this.baseUrl}/protocol/${protocolSlug}`;
       
       // Add date parameters if provided
@@ -362,21 +419,79 @@ export class DefiLlamaFetcher {
       console.log('Fetching DeFiLlama protocol TVL history:', url);
       const response = await axios.get(url, { timeout: 8000 });
       return response.data.tvl || response.data.chainTvls || [];
-    } catch (error) {
+    }).catch(error => {
       console.error('Error fetching protocol TVL history:', error.message);
-      return [];
-    }
+      return {
+        data: [],
+        error: error.message,
+        _unavailable: true,
+        fetched_at: new Date().toISOString()
+      };
+    });
   }
 
   async fetchProtocolTVLByChain(protocolSlug) {
-    try {
+    const requestKey = generateCacheKey('defillama', 'protocol-tvl-by-chain', { slug: protocolSlug });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
       const url = `${this.baseUrl}/protocol/${protocolSlug}`;
       console.log('Fetching DeFiLlama protocol TVL by chain:', url);
       const response = await axios.get(url, { timeout: 8000 });
       return response.data.chainTvls || {};
-    } catch (error) {
+    }).catch(error => {
       console.error('Error fetching protocol TVL by chain:', error.message);
-      return {};
-    }
+      return {
+        data: {},
+        error: error.message,
+        _unavailable: true,
+        fetched_at: new Date().toISOString()
+      };
+    });
   }
-} 
+
+  async fetchProtocolRevenue(protocolSlug) {
+    const requestKey = generateCacheKey('defillama', 'protocol-revenue', { slug: protocolSlug });
+    
+    return this.requestQueue.enqueue(requestKey, async () => {
+      const url = `${this.baseUrl}/summary/fees/${protocolSlug}`;
+      console.log(`Fetching DeFiLlama revenue for: ${protocolSlug}`);
+      
+      const response = await axios.get(url, { 
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'OpenDashboard/1.0',
+          'Accept': 'application/json'
+        }
+      });
+      
+      const data = response.data;
+      
+      const result = {
+        protocol: protocolSlug,
+        name: data.name || protocolSlug,
+        total24h: data.total24h || 0,
+        total48hto24h: data.total48hto24h || 0,
+        total7d: data.total7d || 0,
+        totalAllTime: data.totalAllTime || 0,
+        change_1d: data.change_1d || 0,
+        fetched_at: new Date().toISOString()
+      };
+      
+      console.log(`Revenue fetched for ${protocolSlug}: 24h=$${result.total24h.toLocaleString()}`);
+      return result;
+    }).catch(error => {
+      console.error(`Error fetching DeFiLlama revenue for ${protocolSlug}:`, error.message);
+      return {
+        protocol: protocolSlug,
+        total24h: null,
+        total48hto24h: null,
+        total7d: null,
+        totalAllTime: null,
+        change_1d: null,
+        error: error.message,
+        _unavailable: true,
+        fetched_at: new Date().toISOString()
+      };
+    });
+  }
+}
