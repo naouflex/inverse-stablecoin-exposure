@@ -390,6 +390,170 @@ app.get('/api/admin/flush-cache', async (req, res) => {
   }
 });
 
+// Enhanced cache cleaning endpoint with granular control
+app.post('/api/admin/clean-cache', async (req, res) => {
+  try {
+    const { pattern, type, confirm } = req.body;
+    
+    // Safety check - require confirmation for destructive operations
+    if (!confirm) {
+      return res.status(400).json({
+        success: false,
+        error: 'Confirmation required',
+        message: 'Set "confirm": true in request body to proceed with cache cleaning'
+      });
+    }
+    
+    let deletedCount = 0;
+    let keysToDelete = [];
+    
+    if (type === 'all') {
+      // Flush all cache
+      await redis.flushAll();
+      logger.info('All Redis cache flushed via clean-cache endpoint');
+      
+      res.json({
+        success: true,
+        message: 'All cache cleared successfully',
+        action: 'flush_all',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+    
+    if (pattern) {
+      // Delete keys matching pattern
+      keysToDelete = await redis.keys(pattern);
+      
+      if (keysToDelete.length > 0) {
+        deletedCount = await redis.del(...keysToDelete);
+        logger.info(`Deleted ${deletedCount} cache keys matching pattern: ${pattern}`);
+      }
+      
+      res.json({
+        success: true,
+        message: `Cache cleaning completed`,
+        action: 'pattern_delete',
+        pattern: pattern,
+        keysFound: keysToDelete.length,
+        keysDeleted: deletedCount,
+        deletedKeys: keysToDelete.slice(0, 10), // Show first 10 keys for reference
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+    
+    if (type) {
+      // Predefined cache type cleaning
+      const typePatterns = {
+        'coingecko': 'coingecko:*',
+        'defillama': 'defillama:*',
+        'uniswap': 'uniswap:*',
+        'curve': 'curve:*',
+        'balancer': 'balancer:*',
+        'sushiswap': 'sushiswap:*',
+        'fraxswap': 'fraxswap:*',
+        'fluid': 'fluid:*',
+        'ethereum': 'ethereum:*',
+        'aave': 'aave:*',
+        'morpho': 'morpho:*',
+        'euler': 'euler:*',
+        'lending': '*lending*',
+        'stale': '*:stale',
+        'manual': 'manual:*',
+        'graph': 'graph:*'
+      };
+      
+      const cleanPattern = typePatterns[type.toLowerCase()];
+      if (!cleanPattern) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid cache type',
+          availableTypes: Object.keys(typePatterns),
+          message: 'Use one of the available types or provide a custom pattern'
+        });
+      }
+      
+      keysToDelete = await redis.keys(cleanPattern);
+      
+      if (keysToDelete.length > 0) {
+        deletedCount = await redis.del(...keysToDelete);
+        logger.info(`Deleted ${deletedCount} ${type} cache keys`);
+      }
+      
+      res.json({
+        success: true,
+        message: `${type} cache cleared successfully`,
+        action: 'type_delete',
+        type: type,
+        pattern: cleanPattern,
+        keysFound: keysToDelete.length,
+        keysDeleted: deletedCount,
+        deletedKeys: keysToDelete.slice(0, 10), // Show first 10 keys for reference
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+    
+    // No valid cleaning option provided
+    res.status(400).json({
+      success: false,
+      error: 'Invalid request',
+      message: 'Provide either "type" (all, coingecko, defillama, etc.) or "pattern" for cache cleaning',
+      examples: {
+        flushAll: { type: 'all', confirm: true },
+        cleanCoinGecko: { type: 'coingecko', confirm: true },
+        cleanPattern: { pattern: 'coingecko:market-data:*', confirm: true }
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error cleaning cache:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to clean cache',
+      message: error.message 
+    });
+  }
+});
+
+// Cache statistics endpoint
+app.get('/api/admin/cache-stats', async (req, res) => {
+  try {
+    const info = await redis.info('memory');
+    const dbSize = await redis.dbSize();
+    
+    // Get sample of cache keys by type
+    const keyTypes = {};
+    const sampleKeys = await redis.keys('*');
+    
+    // Analyze key patterns
+    for (const key of sampleKeys.slice(0, 1000)) { // Limit to first 1000 keys for performance
+      const prefix = key.split(':')[0];
+      keyTypes[prefix] = (keyTypes[prefix] || 0) + 1;
+    }
+    
+    res.json({
+      success: true,
+      stats: {
+        totalKeys: dbSize,
+        memoryInfo: info,
+        keysByType: keyTypes,
+        sampleSize: Math.min(sampleKeys.length, 1000),
+        totalKeysScanned: sampleKeys.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Error getting cache stats:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get cache statistics',
+      message: error.message 
+    });
+  }
+});
+
 // Cache metadata endpoint - provides last refresh time
 app.get('/api/cache/last-refresh', async (req, res) => {
   try {
@@ -1075,6 +1239,123 @@ app.get('/api/curve/all-pools', async (req, res) => {
   } catch (error) {
     logger.error('Curve all pools error:', error);
     res.status(500).json({ error: 'Failed to fetch all Curve pools' });
+  }
+});
+
+// ================= FILTERED TVL ENDPOINTS =================
+// These endpoints exclude same-protocol stablecoin pairs
+
+// fetchCurveFilteredTVL -> /api/curve/filtered-tvl/:tokenAddress
+app.get('/api/curve/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `curve:filtered-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await curveFetcher.fetchFilteredTokenTVL(tokenAddress);
+      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache for filtered TVL
+    }
+    
+    res.json({ data });
+  } catch (error) {
+    logger.error('Curve filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Curve filtered TVL' });
+  }
+});
+
+// fetchUniswapV2FilteredTVL -> /api/uniswap/v2/filtered-tvl/:tokenAddress
+app.get('/api/uniswap/v2/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `uniswap:v2:filtered-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchFilteredTokenTVL('uniswap_v2', tokenAddress);
+      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    }
+    
+    res.json({ data });
+  } catch (error) {
+    logger.error('Uniswap V2 filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Uniswap V2 filtered TVL' });
+  }
+});
+
+// fetchUniswapV3FilteredTVL -> /api/uniswap/v3/filtered-tvl/:tokenAddress
+app.get('/api/uniswap/v3/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `uniswap:v3:filtered-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchFilteredTokenTVL('uniswap_v3', tokenAddress);
+      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    }
+    
+    res.json({ data });
+  } catch (error) {
+    logger.error('Uniswap V3 filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Uniswap V3 filtered TVL' });
+  }
+});
+
+// fetchSushiV2FilteredTVL -> /api/sushiswap/v2/filtered-tvl/:tokenAddress
+app.get('/api/sushiswap/v2/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `sushiswap:v2:filtered-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchFilteredTokenTVL('sushi_v2', tokenAddress);
+      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    }
+    
+    res.json({ data });
+  } catch (error) {
+    logger.error('SushiSwap V2 filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch SushiSwap V2 filtered TVL' });
+  }
+});
+
+// fetchSushiV3FilteredTVL -> /api/sushiswap/v3/filtered-tvl/:tokenAddress
+app.get('/api/sushiswap/v3/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `sushiswap:v3:filtered-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchFilteredTokenTVL('sushi_v3', tokenAddress);
+      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    }
+    
+    res.json({ data });
+  } catch (error) {
+    logger.error('SushiSwap V3 filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch SushiSwap V3 filtered TVL' });
+  }
+});
+
+// fetchBalancerFilteredTVL -> /api/balancer/filtered-tvl/:tokenAddress
+app.get('/api/balancer/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:filtered-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchFilteredTokenTVL('balancer', tokenAddress);
+      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    }
+    
+    res.json({ data });
+  } catch (error) {
+    logger.error('Balancer filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer filtered TVL' });
   }
 });
 

@@ -754,38 +754,38 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   // DEX liquidity - Group 2 (staggered loading)
   const primaryContractAddress = contractAddress; // First contract address
   
-  // Use existing hooks with staggered loading flag
-  const curveTVL = useCurveTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
-  const balancerTVL = useBalancerTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });  
-  const uniswapTVL = useUniswapTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
-  const sushiTVL = useSushiTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  // Use filtered TVL hooks to exclude same-protocol stablecoin pairs (e.g., DAI-USDS, USDe-sUSDe)
+  const curveTVL = useCurveFilteredTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  const balancerTVL = useBalancerFilteredTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });  
+  const uniswapTVL = useUniswapFilteredTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  const sushiTVL = useSushiFilteredTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
   
   // For multi-token stablecoins (like USDS+DAI), add additional contract addresses
   const additionalContracts = Object.entries(contractAddresses).filter(([key, addr]) => addr !== primaryContractAddress);
   
   const additionalCurveTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useCurveTVL(contractAddress, {
+    useCurveFilteredTVL(contractAddress, {
       ...options,
       enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   );
   
   const additionalBalancerTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useBalancerTVL(contractAddress, {
+    useBalancerFilteredTVL(contractAddress, {
       ...options,
       enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   );
   
   const additionalUniswapTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useUniswapTotalTVL(contractAddress, {
+    useUniswapFilteredTotalTVL(contractAddress, {
       ...options,
       enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
   );
   
   const additionalSushiTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useSushiTotalTVL(contractAddress, {
+    useSushiFilteredTotalTVL(contractAddress, {
       ...options,
       enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
     })
@@ -1047,3 +1047,11 @@ import {
   useSushiTotalTVL,
   useCoinGeckoMarketData
 } from './index.js';
+
+// Import filtered TVL hooks for mainnet liquidity calculations
+import {
+  useCurveFilteredTVL,
+  useUniswapFilteredTotalTVL,
+  useSushiFilteredTotalTVL,
+  useBalancerFilteredTVL
+} from './useFilteredTVL.js';

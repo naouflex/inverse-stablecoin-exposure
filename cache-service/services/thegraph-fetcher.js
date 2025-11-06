@@ -637,4 +637,111 @@ export class TheGraphFetcher {
   clearQueue() {
     this.requestQueue.clear();
   }
+
+  /**
+   * Fetch filtered TVL for a token excluding same-protocol stablecoin pairs
+   * @param {string} protocol - Protocol name (uniswap_v2, uniswap_v3, sushi_v2, sushi_v3, balancer)
+   * @param {string} tokenAddress - The token contract address
+   * @returns {Promise<number>} - Filtered TVL in USD
+   */
+  async fetchFilteredTokenTVL(protocol, tokenAddress) {
+    try {
+      console.log(`Fetching filtered ${protocol} TVL for ${tokenAddress}`);
+      
+      // First get all pairs/pools for this token
+      const pairsData = await this.fetchData(protocol, 'token_pairs', { tokenAddress, first: 100 });
+      
+      if (!pairsData.data || !pairsData.data.pairs) {
+        console.log(`No pairs found for ${protocol} ${tokenAddress}`);
+        return 0;
+      }
+      
+      let filteredTVL = 0;
+      const pairs = pairsData.data.pairs;
+      
+      for (const pair of pairs) {
+        // Check if this pair should be excluded (same-protocol tokens)
+        const token0Address = pair.token0?.id;
+        const token1Address = pair.token1?.id;
+        
+        if (this.areTokensFromSameProtocol(token0Address, token1Address)) {
+          console.log(`Excluding ${protocol} pair ${pair.id} - contains same-protocol tokens (${pair.token0?.symbol}/${pair.token1?.symbol})`);
+          continue;
+        }
+        
+        // Include this pair's TVL
+        const pairTVL = Number(pair.reserveUSD || 0);
+        filteredTVL += pairTVL;
+        console.log(`Including ${protocol} pair ${pair.token0?.symbol}/${pair.token1?.symbol}: $${pairTVL.toFixed(2)}`);
+      }
+      
+      console.log(`Total filtered ${protocol} TVL for ${tokenAddress}: $${filteredTVL.toFixed(2)}`);
+      return filteredTVL;
+    } catch (error) {
+      console.error(`Error fetching filtered ${protocol} TVL for ${tokenAddress}:`, error.message);
+      return 0;
+    }
+  }
+
+  /**
+   * Check if two tokens are from the same stablecoin protocol
+   * @param {string} token1Address - First token address
+   * @param {string} token2Address - Second token address
+   * @returns {boolean} - True if tokens are from same protocol
+   */
+  areTokensFromSameProtocol(token1Address, token2Address) {
+    if (!token1Address || !token2Address) return false;
+    
+    const addr1 = token1Address.toLowerCase();
+    const addr2 = token2Address.toLowerCase();
+    
+    // Stablecoin relationship mapping
+    const stablecoinRelationships = {
+      sky: [
+        "0x6b175474e89094c44da98b954eedeac495271d0f", // DAI
+        "0xdc035d45d973e3ec169d2276ddab16f1e407384f", // USDS
+        "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd", // sUSDS
+        "0x83f20f44975d03b1b09e64809b757c47f942beea"  // sDAI
+      ],
+      ethena: [
+        "0x4c9edd5852cd905f086c759e8383e09bff1e68b3", // USDe
+        "0x9d39a5de30e57443bff2a8307a4256c8797a3497"  // sUSDe
+      ],
+      resolv: [
+        "0x66a1e37c9b0eaddca17d3662d6c05f4decf3e110", // USR
+        "0x1202f5c7b4b9e47a1a484e8b270be34dbbc75055"  // wstUSR
+      ],
+      elixir: [
+        "0x15700b564ca08d9439c58ca5053166e8317aa138", // deUSD
+        "0x5c5b196abe0d54485975d1ec29617d42d9198326"  // sdeUSD
+      ],
+      curve: [
+        "0xf939e0a03fb07f59a73314e73794be0e57ac1b4e", // crvUSD
+        "0x0655977feb2f289a4ab78af67bab0d17aab84367"  // scrvUSD
+      ],
+      openeden: [
+        "0x8238884ec9668ef77b90c6dff4d1a9f4f4823bfe", // USDO
+        "0xad55aebc9b8c03fc43cd9f62260391c13c23e7c0"  // cUSDO
+      ],
+      fx: [
+        "0x085780639cc2cacd35e474e71f4d000e2405d8f6", // fxUSD
+        "0x7743e50f534a7f9f1791dde7dcd89f7783eefc39"  // xfxUSD/fxSave
+      ],
+      reserve: [
+        "0x57ab1e0003f623289cd798b1824be09a793e4bec", // reUSD
+        "0x557AB1e003951A73c12D16F0fEA8490E39C33C35"  // RSR staking
+      ]
+    };
+    
+    // Check each protocol's token list
+    for (const protocolTokens of Object.values(stablecoinRelationships)) {
+      const lowerTokens = protocolTokens.map(addr => addr.toLowerCase());
+      
+      if (lowerTokens.includes(addr1) && lowerTokens.includes(addr2)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
 } 
