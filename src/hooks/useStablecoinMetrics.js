@@ -722,15 +722,26 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     
     const isLoading = coinGeckoDataQueries.some(query => query.isLoading);
     
+    const breakdown = coinGeckoDataQueries.reduce((acc, query, index) => {
+      acc[coingeckoIds[index]] = query.data?.total_supply || 0;
+      return acc;
+    }, {});
+    
+    // Debug logging for total supply
+    if (!isLoading && total > 0) {
+      const breakdownStr = Object.entries(breakdown)
+        .filter(([_, value]) => value > 0)
+        .map(([id, value]) => `${id}: $${value.toLocaleString()}`)
+        .join(', ');
+      console.log(`[${stablecoin.symbol}] Total Supply: $${total.toLocaleString()}${breakdownStr ? ` (${breakdownStr})` : ''}`);
+    }
+    
     return {
       data: { data: total },
       isLoading,
-      breakdown: coinGeckoDataQueries.reduce((acc, query, index) => {
-        acc[coingeckoIds[index]] = query.data?.total_supply || 0;
-        return acc;
-      }, {})
+      breakdown
     };
-  }, [coinGeckoDataQueries, coingeckoIds]);
+  }, [coinGeckoDataQueries, coingeckoIds, stablecoin.symbol]);
   
   const mainnetSupply = useMemo(() => {
     const total = coinGeckoDataQueries.reduce((sum, query) => {
@@ -739,17 +750,40 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     
     const isLoading = coinGeckoDataQueries.some(query => query.isLoading);
     
+    const breakdown = coinGeckoDataQueries.reduce((acc, query, index) => {
+      acc[coingeckoIds[index]] = query.data?.circulating_supply || 0;
+      return acc;
+    }, {});
+    
+    // Debug logging for mainnet supply
+    if (!isLoading && total > 0) {
+      const breakdownStr = Object.entries(breakdown)
+        .filter(([_, value]) => value > 0)
+        .map(([id, value]) => `${id}: $${value.toLocaleString()}`)
+        .join(', ');
+      console.log(`[${stablecoin.symbol}] Mainnet Supply: $${total.toLocaleString()}${breakdownStr ? ` (${breakdownStr})` : ''}`);
+    }
+    
     return {
       data: { data: total },
       isLoading,
-      breakdown: coinGeckoDataQueries.reduce((acc, query, index) => {
-        acc[coingeckoIds[index]] = query.data?.circulating_supply || 0;
-        return acc;
-      }, {})
+      breakdown
     };
-  }, [coinGeckoDataQueries, coingeckoIds]);
+  }, [coinGeckoDataQueries, coingeckoIds, stablecoin.symbol]);
   
   const bridgeSupply = useStablecoinBridgeSupply(stablecoin.symbol, options);
+  
+  // Add logging for bridge supply
+  useEffect(() => {
+    if (!bridgeSupply.isLoading && bridgeSupply.data?.data !== undefined) {
+      const amount = bridgeSupply.data.data;
+      if (amount > 0) {
+        console.log(`[${stablecoin.symbol}] Bridge Supply: $${amount.toLocaleString()} (${bridgeSupply.data.source || 'unknown'})`);
+      } else if (bridgeSupply.data._unavailable) {
+        console.log(`[${stablecoin.symbol}] Bridge Supply: Data unavailable`);
+      }
+    }
+  }, [bridgeSupply.isLoading, bridgeSupply.data, stablecoin.symbol]);
   
   // DEX liquidity - Group 2 (staggered loading)
   const primaryContractAddress = contractAddress; // First contract address
@@ -871,39 +905,61 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   
   // Choose the appropriate insurance fund data source based on configuration
   const insuranceFund = useMemo(() => {
-
+    let result;
     
     // Special case for Resolv: use FDV data
     if (stablecoin.insuranceFund?.type === 'fdv' && stablecoin.insuranceFund.rlpCoingeckoId) {
-      const result = {
+      result = {
         data: { data: insuranceFundFromFDV.data?.data || 0 },
         isLoading: insuranceFundFromFDV.isLoading,
         source: 'coingecko_fdv',
         rlpTokenAddress: stablecoin.insuranceFund.rlpTokenAddress,
         rlpCoingeckoId: stablecoin.insuranceFund.rlpCoingeckoId
       };
-      //console.log(`Resolv insurance fund result:`, result);
-      return result;
     }
-    
     // Standard case: use balance-based data if available
-    if (stablecoin.insuranceFund?.monitoredAddresses?.length > 0) {
-      return {
+    else if (stablecoin.insuranceFund?.monitoredAddresses?.length > 0) {
+      result = {
         data: { data: insuranceFundFromBalances.data || 0 },
         isLoading: insuranceFundFromBalances.isLoading,
         breakdown: insuranceFundFromBalances.breakdown,
         source: 'blockchain_balances'
       };
     }
-    
     // Fallback to API data
-    return insuranceFundFromAPI;
-  }, [stablecoin.insuranceFund, insuranceFundFromBalances, insuranceFundFromAPI, insuranceFundFromFDV]);
+    else {
+      result = insuranceFundFromAPI;
+    }
+    
+    // Debug logging for insurance fund
+    if (!result.isLoading && result.data?.data !== undefined) {
+      const amount = result.data.data;
+      if (amount > 0) {
+        console.log(`[${stablecoin.symbol}] Insurance Fund: $${amount.toLocaleString()} (${result.source || 'unknown'})`);
+      } else if (result.data._unavailable) {
+        console.log(`[${stablecoin.symbol}] Insurance Fund: Data unavailable`);
+      }
+    }
+    
+    return result;
+  }, [stablecoin.insuranceFund, insuranceFundFromBalances, insuranceFundFromAPI, insuranceFundFromFDV, stablecoin.symbol]);
   
   const collateralizationRatio = useStablecoinCollateralizationRatio(
     stablecoin.symbol, 
     { ...options, enabled: enableSafety && (options.enabled !== false) }
   );
+  
+  // Add logging for collateralization ratio
+  useEffect(() => {
+    if (!collateralizationRatio.isLoading && collateralizationRatio.data?.data !== undefined) {
+      const ratio = collateralizationRatio.data.data;
+      if (ratio > 0) {
+        console.log(`[${stablecoin.symbol}] Collateralization Ratio: ${(ratio * 100).toFixed(1)}% (${collateralizationRatio.data.source || 'unknown'})`);
+      } else if (collateralizationRatio.data._unavailable) {
+        console.log(`[${stablecoin.symbol}] Collateralization Ratio: Data unavailable`);
+      }
+    }
+  }, [collateralizationRatio.isLoading, collateralizationRatio.data, stablecoin.symbol]);
   
   // Use different approaches for staked supply based on the stablecoin
   const stakedSupplyFromCoinGecko = useStablecoinStakedSupplyFromCoinGecko(
@@ -934,32 +990,52 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   
   // Choose the appropriate data source based on the stablecoin
   const stakedSupply = useMemo(() => {
+    let result;
+    
     // Special case for reUSD - use blockchain total supply with proper decimal formatting
     if (stablecoin.symbol === 'reUSD' && firstStakedContract) {
       const rawAmount = stakedSupplyFromBlockchain.data || 0;
       const decimals = stakedContractDecimals.data || 18;
       const formattedAmount = rawAmount > 0 ? formatTokenAmount(rawAmount, decimals) : 0;
       
-      return {
+      result = {
         data: { data: formattedAmount },
         isLoading: stakedSupplyFromBlockchain.isLoading || stakedContractDecimals.isLoading,
         source: 'blockchain',
         decimals: decimals
       };
     }
-    
     // For other stablecoins with CoinGecko IDs, use CoinGecko data
-    if (stablecoin.stakedCoingeckoIds && stablecoin.stakedCoingeckoIds.length > 0) {
-      return {
+    else if (stablecoin.stakedCoingeckoIds && stablecoin.stakedCoingeckoIds.length > 0) {
+      result = {
         data: { data: stakedSupplyFromCoinGecko.data?.data || 0 },
         isLoading: stakedSupplyFromCoinGecko.isLoading,
         breakdown: stakedSupplyFromCoinGecko.data?.breakdown,
         source: 'coingecko'
       };
     }
-    
     // Fallback to contract-based approach
-    return stakedSupplyFromContract;
+    else {
+      result = stakedSupplyFromContract;
+    }
+    
+    // Debug logging for staked supply
+    if (!result.isLoading && result.data?.data !== undefined) {
+      const amount = result.data.data;
+      if (amount > 0) {
+        const breakdownStr = result.breakdown 
+          ? Object.entries(result.breakdown)
+              .filter(([_, value]) => value > 0)
+              .map(([id, value]) => `${id}: $${value.toLocaleString()}`)
+              .join(', ')
+          : '';
+        console.log(`[${stablecoin.symbol}] Staked Supply: $${amount.toLocaleString()} (${result.source || 'unknown'})${breakdownStr ? ` - ${breakdownStr}` : ''}`);
+      } else if (result.data._unavailable) {
+        console.log(`[${stablecoin.symbol}] Staked Supply: Data unavailable`);
+      }
+    }
+    
+    return result;
   }, [stablecoin.symbol, stablecoin.stakedCoingeckoIds, firstStakedContract, 
       stakedSupplyFromCoinGecko, stakedSupplyFromContract, stakedSupplyFromBlockchain, stakedContractDecimals]);
 
@@ -967,38 +1043,70 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   const combinedCurveTVL = useMemo(() => {
     const primary = curveTVL.data || 0;
     const additional = additionalCurveTVL.reduce((sum, query) => sum + (query.data || 0), 0);
+    const total = primary + additional;
+    const isLoading = curveTVL.isLoading || additionalCurveTVL.some(q => q.isLoading);
+    
+    // Debug logging for Curve TVL
+    if (!isLoading && (primary > 0 || additional > 0)) {
+      console.log(`[${stablecoin.symbol}] Curve TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    }
+    
     return {
-      data: { data: primary + additional },
-      isLoading: curveTVL.isLoading || additionalCurveTVL.some(q => q.isLoading)
+      data: { data: total },
+      isLoading
     };
-  }, [curveTVL, additionalCurveTVL]);
+  }, [curveTVL, additionalCurveTVL, stablecoin.symbol]);
 
   const combinedBalancerTVL = useMemo(() => {
     const primary = balancerTVL.data || 0;
     const additional = additionalBalancerTVL.reduce((sum, query) => sum + (query.data || 0), 0);
+    const total = primary + additional;
+    const isLoading = balancerTVL.isLoading || additionalBalancerTVL.some(q => q.isLoading);
+    
+    // Debug logging for Balancer TVL
+    if (!isLoading && (primary > 0 || additional > 0)) {
+      console.log(`[${stablecoin.symbol}] Balancer TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    }
+    
     return {
-      data: { data: primary + additional },
-      isLoading: balancerTVL.isLoading || additionalBalancerTVL.some(q => q.isLoading)
+      data: { data: total },
+      isLoading
     };
-  }, [balancerTVL, additionalBalancerTVL]);
+  }, [balancerTVL, additionalBalancerTVL, stablecoin.symbol]);
 
   const combinedUniswapTVL = useMemo(() => {
     const primary = uniswapTVL.data || 0;
     const additional = additionalUniswapTVL.reduce((sum, query) => sum + (query.data || 0), 0);
+    const total = primary + additional;
+    const isLoading = uniswapTVL.isLoading || additionalUniswapTVL.some(q => q.isLoading);
+    
+    // Debug logging for Uniswap TVL
+    if (!isLoading && (primary > 0 || additional > 0)) {
+      console.log(`[${stablecoin.symbol}] Uniswap TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    }
+    
     return {
-      data: { data: primary + additional },
-      isLoading: uniswapTVL.isLoading || additionalUniswapTVL.some(q => q.isLoading)
+      data: { data: total },
+      isLoading
     };
-  }, [uniswapTVL, additionalUniswapTVL]);
+  }, [uniswapTVL, additionalUniswapTVL, stablecoin.symbol]);
 
   const combinedSushiTVL = useMemo(() => {
     const primary = sushiTVL.data || 0;
     const additional = additionalSushiTVL.reduce((sum, query) => sum + (query.data || 0), 0);
+    const total = primary + additional;
+    const isLoading = sushiTVL.isLoading || additionalSushiTVL.some(q => q.isLoading);
+    
+    // Debug logging for Sushi TVL
+    if (!isLoading && (primary > 0 || additional > 0)) {
+      console.log(`[${stablecoin.symbol}] Sushi TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    }
+    
     return {
-      data: { data: primary + additional },
-      isLoading: sushiTVL.isLoading || additionalSushiTVL.some(q => q.isLoading)
+      data: { data: total },
+      isLoading
     };
-  }, [sushiTVL, additionalSushiTVL]);
+  }, [sushiTVL, additionalSushiTVL, stablecoin.symbol]);
 
   return {
     // Supply metrics
@@ -1021,21 +1129,56 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
     stakedSupply,
     
     // Calculated metrics
-    totalMainnetLiquidity: {
-      data: (combinedCurveTVL.data?.data || 0) + (combinedBalancerTVL.data?.data || 0) + 
-            (combinedUniswapTVL.data?.data || 0) + (combinedSushiTVL.data?.data || 0),
-      isLoading: combinedCurveTVL.isLoading || combinedBalancerTVL.isLoading || 
-                 combinedUniswapTVL.isLoading || combinedSushiTVL.isLoading
-    },
+    totalMainnetLiquidity: useMemo(() => {
+      const curveTotal = combinedCurveTVL.data?.data || 0;
+      const balancerTotal = combinedBalancerTVL.data?.data || 0;
+      const uniswapTotal = combinedUniswapTVL.data?.data || 0;
+      const sushiTotal = combinedSushiTVL.data?.data || 0;
+      const total = curveTotal + balancerTotal + uniswapTotal + sushiTotal;
+      
+      const isLoading = combinedCurveTVL.isLoading || combinedBalancerTVL.isLoading || 
+                       combinedUniswapTVL.isLoading || combinedSushiTVL.isLoading;
+      
+      // Debug logging for total mainnet liquidity
+      if (!isLoading && total > 0) {
+        console.log(`[${stablecoin.symbol}] Total Mainnet Liquidity: $${total.toLocaleString()} (Curve: $${curveTotal.toLocaleString()}, Balancer: $${balancerTotal.toLocaleString()}, Uniswap: $${uniswapTotal.toLocaleString()}, Sushi: $${sushiTotal.toLocaleString()})`);
+      }
+      
+      return {
+        data: total,
+        isLoading,
+        breakdown: {
+          curve: curveTotal,
+          balancer: balancerTotal,
+          uniswap: uniswapTotal,
+          sushi: sushiTotal
+        }
+      };
+    }, [combinedCurveTVL, combinedBalancerTVL, combinedUniswapTVL, combinedSushiTVL, stablecoin.symbol]),
     
-    supplyOnMainnetPercent: {
+    supplyOnMainnetPercent: useMemo(() => {
       // Formula: 1 - (Bridge Supply / Mainnet Supply)
       // Shows what % of mainnet supply is actually ON mainnet (not bridged to other chains)
-      data: mainnetSupply.data?.data > 0 
-        ? 1 - ((bridgeSupply.data?.data || 0) / mainnetSupply.data.data)
-        : 0,
-      isLoading: mainnetSupply.isLoading || bridgeSupply.isLoading
-    }
+      const mainnetAmount = mainnetSupply.data?.data || 0;
+      const bridgeAmount = bridgeSupply.data?.data || 0;
+      const percentage = mainnetAmount > 0 ? 1 - (bridgeAmount / mainnetAmount) : 0;
+      const isLoading = mainnetSupply.isLoading || bridgeSupply.isLoading;
+      
+      // Debug logging for supply on mainnet percentage
+      if (!isLoading && mainnetAmount > 0) {
+        console.log(`[${stablecoin.symbol}] Supply Metrics Summary - Total: $${totalSupply.data?.data?.toLocaleString() || 0}, Mainnet: $${mainnetAmount.toLocaleString()}, Bridge: $${bridgeAmount.toLocaleString()}, On-Mainnet: ${(percentage * 100).toFixed(1)}%`);
+      }
+      
+      return {
+        data: percentage,
+        isLoading,
+        breakdown: {
+          totalSupply: totalSupply.data?.data || 0,
+          mainnetSupply: mainnetAmount,
+          bridgeSupply: bridgeAmount
+        }
+      };
+    }, [mainnetSupply, bridgeSupply, totalSupply, stablecoin.symbol])
   };
 }
 
