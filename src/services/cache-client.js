@@ -603,9 +603,9 @@ export async function fetchSushiV2TokenVolume24h(tokenAddress) {
   }
 }
 
-export async function fetchBalancerTokenTVL(tokenAddress) {
+export async function fetchBalancerV2TokenTVL(tokenAddress) {
   try {
-    const response = await cacheApi.get(`/balancer/token-tvl/${tokenAddress}`);
+    const response = await cacheApi.get(`/balancer/v2/token-tvl/${tokenAddress}`);
     
     // Handle new processed number format
     if (typeof response.data?.data === 'number') {
@@ -621,7 +621,37 @@ export async function fetchBalancerTokenTVL(tokenAddress) {
     const pools = data?.pools || [];
     return pools.reduce((total, pool) => total + Number(pool.totalLiquidity || 0), 0);
   } catch (error) {
-    console.error(`Error fetching Balancer TVL for ${tokenAddress}:`, error);
+    console.error(`Error fetching Balancer V2 TVL for ${tokenAddress}:`, error);
+    return 0;
+  }
+}
+
+export async function fetchBalancerV3TokenTVL(tokenAddress) {
+  try {
+    const response = await cacheApi.get(`/balancer/v3/token-tvl/${tokenAddress}`);
+    
+    // Handle processed number format
+    if (typeof response.data?.data === 'number') {
+      return Number(response.data.data);
+    }
+    
+    return 0;
+  } catch (error) {
+    console.error(`Error fetching Balancer V3 TVL for ${tokenAddress}:`, error);
+    return 0;
+  }
+}
+
+export async function fetchBalancerTokenTVL(tokenAddress) {
+  try {
+    // Fetch both V2 and V3, then combine
+    const [v2TVL, v3TVL] = await Promise.all([
+      fetchBalancerV2TokenTVL(tokenAddress),
+      fetchBalancerV3TokenTVL(tokenAddress)
+    ]);
+    return v2TVL + v3TVL;
+  } catch (error) {
+    console.error(`Error fetching total Balancer TVL for ${tokenAddress}:`, error);
     return 0;
   }
 }
@@ -657,13 +687,19 @@ export async function fetchSushiTotalTVL(tokenAddress) {
 // ================= FILTERED TVL FUNCTIONS (EXCLUDE SAME-PROTOCOL PAIRS) =================
 
 /**
- * Fetch filtered Curve TVL excluding same-protocol stablecoin pairs
+ * Fetch filtered Curve TVL excluding same-protocol stablecoin pairs (with Pendle PT support)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchCurveFilteredTVL(tokenAddress) {
+export async function fetchCurveFilteredTVL(tokenAddress, additionalAddresses = []) {
   try {
-    const response = await cacheApi.get(`/curve/filtered-tvl/${tokenAddress}`);
+    let url = `/curve/filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
     return Number(response.data?.data || 0);
   } catch (error) {
     console.error(`Error fetching filtered Curve TVL for ${tokenAddress}:`, error);
@@ -672,13 +708,19 @@ export async function fetchCurveFilteredTVL(tokenAddress) {
 }
 
 /**
- * Fetch filtered Uniswap V2 TVL excluding same-protocol stablecoin pairs
+ * Fetch filtered Uniswap V2 TVL excluding same-protocol stablecoin pairs (with Pendle PT)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchUniswapV2FilteredTVL(tokenAddress) {
+export async function fetchUniswapV2FilteredTVL(tokenAddress, additionalAddresses = []) {
   try {
-    const response = await cacheApi.get(`/uniswap/v2/filtered-tvl/${tokenAddress}`);
+    let url = `/uniswap/v2/filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
     return Number(response.data?.data || 0);
   } catch (error) {
     console.error(`Error fetching filtered Uniswap V2 TVL for ${tokenAddress}:`, error);
@@ -687,13 +729,19 @@ export async function fetchUniswapV2FilteredTVL(tokenAddress) {
 }
 
 /**
- * Fetch filtered Uniswap V3 TVL excluding same-protocol stablecoin pairs
+ * Fetch filtered Uniswap V3 TVL excluding same-protocol stablecoin pairs (with Pendle PT)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchUniswapV3FilteredTVL(tokenAddress) {
+export async function fetchUniswapV3FilteredTVL(tokenAddress, additionalAddresses = []) {
   try {
-    const response = await cacheApi.get(`/uniswap/v3/filtered-tvl/${tokenAddress}`);
+    let url = `/uniswap/v3/filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
     return Number(response.data?.data || 0);
   } catch (error) {
     console.error(`Error fetching filtered Uniswap V3 TVL for ${tokenAddress}:`, error);
@@ -702,15 +750,16 @@ export async function fetchUniswapV3FilteredTVL(tokenAddress) {
 }
 
 /**
- * Fetch filtered total Uniswap TVL (V2 + V3) excluding same-protocol stablecoin pairs
+ * Fetch filtered total Uniswap TVL (V2 + V3) excluding same-protocol stablecoin pairs (with Pendle PT)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchUniswapFilteredTotalTVL(tokenAddress) {
+export async function fetchUniswapFilteredTotalTVL(tokenAddress, additionalAddresses = []) {
   try {
     const [v2TVL, v3TVL] = await Promise.all([
-      fetchUniswapV2FilteredTVL(tokenAddress),
-      fetchUniswapV3FilteredTVL(tokenAddress)
+      fetchUniswapV2FilteredTVL(tokenAddress, additionalAddresses),
+      fetchUniswapV3FilteredTVL(tokenAddress, additionalAddresses)
     ]);
     return v2TVL + v3TVL;
   } catch (error) {
@@ -720,13 +769,19 @@ export async function fetchUniswapFilteredTotalTVL(tokenAddress) {
 }
 
 /**
- * Fetch filtered SushiSwap V2 TVL excluding same-protocol stablecoin pairs
+ * Fetch filtered SushiSwap V2 TVL excluding same-protocol stablecoin pairs (with Pendle PT)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchSushiV2FilteredTVL(tokenAddress) {
+export async function fetchSushiV2FilteredTVL(tokenAddress, additionalAddresses = []) {
   try {
-    const response = await cacheApi.get(`/sushiswap/v2/filtered-tvl/${tokenAddress}`);
+    let url = `/sushiswap/v2/filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
     return Number(response.data?.data || 0);
   } catch (error) {
     console.error(`Error fetching filtered SushiSwap V2 TVL for ${tokenAddress}:`, error);
@@ -735,13 +790,19 @@ export async function fetchSushiV2FilteredTVL(tokenAddress) {
 }
 
 /**
- * Fetch filtered SushiSwap V3 TVL excluding same-protocol stablecoin pairs
+ * Fetch filtered SushiSwap V3 TVL excluding same-protocol stablecoin pairs (with Pendle PT)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchSushiV3FilteredTVL(tokenAddress) {
+export async function fetchSushiV3FilteredTVL(tokenAddress, additionalAddresses = []) {
   try {
-    const response = await cacheApi.get(`/sushiswap/v3/filtered-tvl/${tokenAddress}`);
+    let url = `/sushiswap/v3/filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
     return Number(response.data?.data || 0);
   } catch (error) {
     console.error(`Error fetching filtered SushiSwap V3 TVL for ${tokenAddress}:`, error);
@@ -750,15 +811,16 @@ export async function fetchSushiV3FilteredTVL(tokenAddress) {
 }
 
 /**
- * Fetch filtered total SushiSwap TVL (V2 + V3) excluding same-protocol stablecoin pairs
+ * Fetch filtered total SushiSwap TVL (V2 + V3) excluding same-protocol stablecoin pairs (with Pendle PT)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchSushiFilteredTotalTVL(tokenAddress) {
+export async function fetchSushiFilteredTotalTVL(tokenAddress, additionalAddresses = []) {
   try {
     const [v2TVL, v3TVL] = await Promise.all([
-      fetchSushiV2FilteredTVL(tokenAddress),
-      fetchSushiV3FilteredTVL(tokenAddress)
+      fetchSushiV2FilteredTVL(tokenAddress, additionalAddresses),
+      fetchSushiV3FilteredTVL(tokenAddress, additionalAddresses)
     ]);
     return v2TVL + v3TVL;
   } catch (error) {
@@ -768,17 +830,90 @@ export async function fetchSushiFilteredTotalTVL(tokenAddress) {
 }
 
 /**
- * Fetch filtered Balancer TVL excluding same-protocol stablecoin pairs
+ * Fetch filtered Balancer V2 TVL excluding same-protocol stablecoin pairs (with Pendle PT)
  * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
  * @returns {Promise<number>} - Filtered TVL in USD
  */
-export async function fetchBalancerFilteredTVL(tokenAddress) {
+export async function fetchBalancerV2FilteredTVL(tokenAddress, additionalAddresses = []) {
   try {
-    const response = await cacheApi.get(`/balancer/filtered-tvl/${tokenAddress}`);
-    return Number(response.data?.data || 0);
+    console.log(`[Balancer V2] Fetching filtered TVL for ${tokenAddress}...`);
+    let url = `/balancer/v2/filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
+    const tvl = Number(response.data?.data || 0);
+    console.log(`[Balancer V2] Filtered TVL for ${tokenAddress}: $${tvl}`);
+    return tvl;
   } catch (error) {
-    console.error(`Error fetching filtered Balancer TVL for ${tokenAddress}:`, error);
+    console.error(`[Balancer V2] Error fetching filtered TVL for ${tokenAddress}:`, error.message);
     return 0;
+  }
+}
+
+/**
+ * Fetch filtered Balancer V3 TVL excluding same-protocol stablecoin pairs (with Pendle PT)
+ * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
+ * @returns {Promise<number>} - Filtered TVL in USD
+ */
+export async function fetchBalancerV3FilteredTVL(tokenAddress, additionalAddresses = []) {
+  try {
+    console.log(`[Balancer V3] Fetching filtered TVL for ${tokenAddress}...`);
+    let url = `/balancer/v3/filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
+    const tvl = Number(response.data?.data || 0);
+    console.log(`[Balancer V3] Filtered TVL for ${tokenAddress}: $${tvl}`);
+    return tvl;
+  } catch (error) {
+    console.error(`[Balancer V3] Error fetching filtered TVL for ${tokenAddress}:`, error.message);
+    return 0;
+  }
+}
+
+/**
+ * Fetch filtered Balancer total TVL (V2 + V3) excluding same-protocol stablecoin pairs (with Pendle PT)
+ * @param {string} tokenAddress - The token contract address
+ * @param {Array} additionalAddresses - Additional addresses (e.g., staked versions)
+ * @returns {Promise<number>} - Filtered TVL in USD
+ */
+export async function fetchBalancerFilteredTVL(tokenAddress, additionalAddresses = []) {
+  try {
+    console.log(`[Balancer] Fetching filtered TVL for ${tokenAddress}...`);
+    let url = `/balancer/total-filtered-tvl/${tokenAddress}`;
+    if (additionalAddresses.length > 0) {
+      url += `?additionalAddresses=${additionalAddresses.join(',')}`;
+    }
+    
+    const response = await cacheApi.get(url);
+    const tvl = Number(response.data?.data || 0);
+    console.log(`[Balancer] Filtered TVL response for ${tokenAddress}:`, { 
+      rawResponse: response.data, 
+      extractedTVL: tvl 
+    });
+    return tvl;
+  } catch (error) {
+    console.error(`[Balancer] Error fetching filtered total TVL for ${tokenAddress}:`, error.message);
+    // Fallback: fetch V2 and V3 separately
+    try {
+      console.log(`[Balancer] Trying fallback for ${tokenAddress}...`);
+      const [v2TVL, v3TVL] = await Promise.all([
+        fetchBalancerV2FilteredTVL(tokenAddress, additionalAddresses),
+        fetchBalancerV3FilteredTVL(tokenAddress, additionalAddresses)
+      ]);
+      const total = v2TVL + v3TVL;
+      console.log(`[Balancer] Fallback succeeded: V2=$${v2TVL}, V3=$${v3TVL}, Total=$${total}`);
+      return total;
+    } catch (fallbackError) {
+      console.error(`[Balancer] Fallback also failed:`, fallbackError.message);
+      return 0;
+    }
   }
 }
 
@@ -850,21 +985,48 @@ export async function fetchCurve24hVolume(tokenAddress) {
   }
 }
 
-export async function fetchBalancer24hVolume(tokenAddress) {
+export async function fetchBalancerV2Volume(tokenAddress) {
   try {
-    const response = await cacheApi.get(`/balancer/token-volume/${tokenAddress}`);
+    const response = await cacheApi.get(`/balancer/v2/token-volume/${tokenAddress}`);
     
     // Handle new processed number format
     if (typeof response.data?.data === 'number') {
       return Number(response.data.data);
     }
     
-    // Fallback for old GraphQL structure  
-    const data = response.data?.data;
-    const pools = data?.pools || [];
-    return pools.reduce((total, pool) => total + Number(pool.totalSwapVolume || 0), 0);
+    return 0;
   } catch (error) {
-    console.error(`Error fetching Balancer volume for ${tokenAddress}:`, error);
+    console.error(`Error fetching Balancer V2 volume for ${tokenAddress}:`, error);
+    return 0;
+  }
+}
+
+export async function fetchBalancerV3Volume(tokenAddress) {
+  try {
+    const response = await cacheApi.get(`/balancer/v3/token-volume/${tokenAddress}`);
+    
+    // Handle processed number format
+    if (typeof response.data?.data === 'number') {
+      return Number(response.data.data);
+    }
+    
+    return 0;
+  } catch (error) {
+    console.error(`Error fetching Balancer V3 volume for ${tokenAddress}:`, error);
+    return 0;
+  }
+}
+
+export async function fetchBalancer24hVolume(tokenAddress) {
+  try {
+    // Fetch both V2 and V3, then combine
+    const [v2Volume, v3Volume] = await Promise.all([
+      fetchBalancerV2Volume(tokenAddress),
+      fetchBalancerV3Volume(tokenAddress)
+    ]);
+    return v2Volume + v3Volume;
+  } catch (error) {
+    console.error(`Error fetching total Balancer volume for ${tokenAddress}:`, error);
     return 0;
   }
 }

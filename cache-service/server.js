@@ -1426,102 +1426,303 @@ app.get('/api/curve/all-pools', async (req, res) => {
 // ================= FILTERED TVL ENDPOINTS =================
 // These endpoints exclude same-protocol stablecoin pairs
 
-// fetchCurveFilteredTVL -> /api/curve/filtered-tvl/:tokenAddress
+// fetchCurveFilteredTVL -> /api/curve/filtered-tvl/:tokenAddress (with Pendle PT support)
 app.get('/api/curve/filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `curve:filtered-tvl:${tokenAddress}`;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
     
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      data = await curveFetcher.fetchFilteredTokenTVL(tokenAddress);
-      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache for filtered TVL
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `curve:filtered-tvl:${allTokenAddresses.sort().join('-')}`;
+    
+    let totalTVL = await cacheManager.get(cacheKey);
+    if (totalTVL === null || totalTVL === undefined) {
+      logger.info(`[Curve Filtered] Fetching for ${allTokenAddresses.length} addresses with Pendle PT support`);
+      
+      // Step 1: Get Pendle PT tokens for all stablecoin addresses
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
+      
+      logger.info(`[Curve Filtered] Found ${ptAddresses.length} PT tokens`);
+      
+      // Step 2: Fetch Curve TVL for base tokens
+      const baseTokensTVL = await Promise.all(
+        allTokenAddresses.map(addr => curveFetcher.fetchFilteredTokenTVL(addr))
+      );
+      const directTVL = baseTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      
+      // Step 3: Fetch Curve TVL for PT tokens
+      let ptTVL = 0;
+      if (ptAddresses.length > 0) {
+        const ptTokensTVL = await Promise.all(
+          ptAddresses.map(addr => curveFetcher.fetchFilteredTokenTVL(addr))
+        );
+        ptTVL = ptTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      }
+      
+      totalTVL = directTVL + ptTVL;
+      
+      logger.info(`[Curve Filtered] ${tokenAddress}: Direct=$${directTVL.toFixed(2)}, PT=$${ptTVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+      
+      await cacheManager.set(cacheKey, totalTVL, 600);
     }
     
-    res.json({ data });
+    res.json({ data: totalTVL });
   } catch (error) {
     logger.error('Curve filtered TVL error:', error);
-    res.status(500).json({ error: 'Failed to fetch Curve filtered TVL' });
+    res.status(500).json({ error: 'Failed to fetch Curve filtered TVL', data: 0 });
   }
 });
 
-// fetchUniswapV2FilteredTVL -> /api/uniswap/v2/filtered-tvl/:tokenAddress
+// fetchUniswapV2FilteredTVL -> /api/uniswap/v2/filtered-tvl/:tokenAddress (with Pendle PT)
 app.get('/api/uniswap/v2/filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `uniswap:v2:filtered-tvl:${tokenAddress}`;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
     
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      data = await theGraphFetcher.fetchFilteredTokenTVL('uniswap_v2', tokenAddress);
-      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `uniswap:v2:filtered-tvl-pt:${allTokenAddresses.sort().join('-')}`;
+    
+    let totalTVL = await cacheManager.get(cacheKey);
+    if (totalTVL === null || totalTVL === undefined) {
+      // Get Pendle PT tokens
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
+      
+      // Fetch TVL for base + PT tokens
+      const [baseTokensTVL, ptTokensTVL] = await Promise.all([
+        Promise.all(allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('uniswap_v2', addr))),
+        Promise.all(ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('uniswap_v2', addr)))
+      ]);
+      
+      const directTVL = baseTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      const ptTVL = ptTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      totalTVL = directTVL + ptTVL;
+      
+      logger.info(`[Uniswap V2 Filtered] Direct=$${directTVL.toFixed(2)}, PT=$${ptTVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+      await cacheManager.set(cacheKey, totalTVL, 600);
     }
     
-    res.json({ data });
+    res.json({ data: totalTVL });
   } catch (error) {
     logger.error('Uniswap V2 filtered TVL error:', error);
-    res.status(500).json({ error: 'Failed to fetch Uniswap V2 filtered TVL' });
+    res.status(500).json({ error: 'Failed to fetch Uniswap V2 filtered TVL', data: 0 });
   }
 });
 
-// fetchUniswapV3FilteredTVL -> /api/uniswap/v3/filtered-tvl/:tokenAddress
+// fetchUniswapV3FilteredTVL -> /api/uniswap/v3/filtered-tvl/:tokenAddress (with Pendle PT)
 app.get('/api/uniswap/v3/filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `uniswap:v3:filtered-tvl:${tokenAddress}`;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
     
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      data = await theGraphFetcher.fetchFilteredTokenTVL('uniswap_v3', tokenAddress);
-      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `uniswap:v3:filtered-tvl-pt:${allTokenAddresses.sort().join('-')}`;
+    
+    let totalTVL = await cacheManager.get(cacheKey);
+    if (totalTVL === null || totalTVL === undefined) {
+      // Get Pendle PT tokens
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
+      
+      // Fetch TVL for base + PT tokens
+      const [baseTokensTVL, ptTokensTVL] = await Promise.all([
+        Promise.all(allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('uniswap_v3', addr))),
+        Promise.all(ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('uniswap_v3', addr)))
+      ]);
+      
+      const directTVL = baseTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      const ptTVL = ptTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      totalTVL = directTVL + ptTVL;
+      
+      logger.info(`[Uniswap V3 Filtered] Direct=$${directTVL.toFixed(2)}, PT=$${ptTVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+      await cacheManager.set(cacheKey, totalTVL, 600);
     }
     
-    res.json({ data });
+    res.json({ data: totalTVL });
   } catch (error) {
     logger.error('Uniswap V3 filtered TVL error:', error);
-    res.status(500).json({ error: 'Failed to fetch Uniswap V3 filtered TVL' });
+    res.status(500).json({ error: 'Failed to fetch Uniswap V3 filtered TVL', data: 0 });
   }
 });
 
-// fetchSushiV2FilteredTVL -> /api/sushiswap/v2/filtered-tvl/:tokenAddress
+// fetchSushiV2FilteredTVL -> /api/sushiswap/v2/filtered-tvl/:tokenAddress (with Pendle PT)
 app.get('/api/sushiswap/v2/filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `sushiswap:v2:filtered-tvl:${tokenAddress}`;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
     
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      data = await theGraphFetcher.fetchFilteredTokenTVL('sushi_v2', tokenAddress);
-      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `sushiswap:v2:filtered-tvl-pt:${allTokenAddresses.sort().join('-')}`;
+    
+    let totalTVL = await cacheManager.get(cacheKey);
+    if (totalTVL === null || totalTVL === undefined) {
+      // Get Pendle PT tokens
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
+      
+      // Fetch TVL for base + PT tokens
+      const [baseTokensTVL, ptTokensTVL] = await Promise.all([
+        Promise.all(allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('sushi_v2', addr))),
+        Promise.all(ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('sushi_v2', addr)))
+      ]);
+      
+      const directTVL = baseTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      const ptTVL = ptTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      totalTVL = directTVL + ptTVL;
+      
+      logger.info(`[Sushi V2 Filtered] Direct=$${directTVL.toFixed(2)}, PT=$${ptTVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+      await cacheManager.set(cacheKey, totalTVL, 600);
     }
     
-    res.json({ data });
+    res.json({ data: totalTVL });
   } catch (error) {
     logger.error('SushiSwap V2 filtered TVL error:', error);
-    res.status(500).json({ error: 'Failed to fetch SushiSwap V2 filtered TVL' });
+    res.status(500).json({ error: 'Failed to fetch SushiSwap V2 filtered TVL', data: 0 });
   }
 });
 
-// fetchSushiV3FilteredTVL -> /api/sushiswap/v3/filtered-tvl/:tokenAddress
+// fetchSushiV3FilteredTVL -> /api/sushiswap/v3/filtered-tvl/:tokenAddress (with Pendle PT)
 app.get('/api/sushiswap/v3/filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `sushiswap:v3:filtered-tvl:${tokenAddress}`;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
     
-    let data = await cacheManager.get(cacheKey);
-    if (!data) {
-      data = await theGraphFetcher.fetchFilteredTokenTVL('sushi_v3', tokenAddress);
-      await cacheManager.set(cacheKey, data, 600); // 10 minutes cache
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `sushiswap:v3:filtered-tvl-pt:${allTokenAddresses.sort().join('-')}`;
+    
+    let totalTVL = await cacheManager.get(cacheKey);
+    if (totalTVL === null || totalTVL === undefined) {
+      // Get Pendle PT tokens
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
+      
+      // Fetch TVL for base + PT tokens
+      const [baseTokensTVL, ptTokensTVL] = await Promise.all([
+        Promise.all(allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('sushi_v3', addr))),
+        Promise.all(ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('sushi_v3', addr)))
+      ]);
+      
+      const directTVL = baseTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      const ptTVL = ptTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      totalTVL = directTVL + ptTVL;
+      
+      logger.info(`[Sushi V3 Filtered] Direct=$${directTVL.toFixed(2)}, PT=$${ptTVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+      await cacheManager.set(cacheKey, totalTVL, 600);
     }
     
-    res.json({ data });
+    res.json({ data: totalTVL });
   } catch (error) {
     logger.error('SushiSwap V3 filtered TVL error:', error);
-    res.status(500).json({ error: 'Failed to fetch SushiSwap V3 filtered TVL' });
+    res.status(500).json({ error: 'Failed to fetch SushiSwap V3 filtered TVL', data: 0 });
   }
 });
 
-// fetchBalancerFilteredTVL -> /api/balancer/filtered-tvl/:tokenAddress
+// fetchBalancerV2FilteredTVL -> /api/balancer/v2/filtered-tvl/:tokenAddress (with Pendle PT)
+app.get('/api/balancer/v2/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
+    
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `balancer:v2:filtered-tvl-pt:${allTokenAddresses.sort().join('-')}`;
+    
+    let totalTVL = await cacheManager.get(cacheKey);
+    if (totalTVL === null || totalTVL === undefined) {
+      // Get Pendle PT tokens
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
+      
+      // Fetch TVL for base + PT tokens
+      const [baseTokensTVL, ptTokensTVL] = await Promise.all([
+        Promise.all(allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer', addr))),
+        Promise.all(ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer', addr)))
+      ]);
+      
+      const directTVL = baseTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      const ptTVL = ptTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      totalTVL = directTVL + ptTVL;
+      
+      logger.info(`[Balancer V2 Filtered] Direct=$${directTVL.toFixed(2)}, PT=$${ptTVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+      await cacheManager.set(cacheKey, totalTVL, 600);
+    }
+    
+    res.json({ data: totalTVL });
+  } catch (error) {
+    logger.error('Balancer V2 filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer V2 filtered TVL', data: 0 });
+  }
+});
+
+// fetchBalancerV3FilteredTVL -> /api/balancer/v3/filtered-tvl/:tokenAddress
+app.get('/api/balancer/v3/filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:v3:filtered-tvl:${tokenAddress}`;
+    
+    let tvl = await cacheManager.get(cacheKey);
+    if (tvl === null || tvl === undefined) {
+      logger.info(`[Balancer V3 Filtered] Starting for ${tokenAddress}`);
+      
+      // Fetch filtered poolTokens (excludes same-protocol pairs)
+      const filteredPoolTokens = await theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', tokenAddress);
+      
+      logger.info(`[Balancer V3 Filtered] Got ${Array.isArray(filteredPoolTokens) ? filteredPoolTokens.length : 'non-array'} filtered pool tokens`);
+      
+      // Calculate TVL from the filtered poolTokens
+      if (Array.isArray(filteredPoolTokens) && filteredPoolTokens.length > 0) {
+        logger.info(`[Balancer V3 Filtered] Calculating TVL from ${filteredPoolTokens.length} pool tokens...`);
+        
+        tvl = await theGraphFetcher.calculateBalancerV3TVL(filteredPoolTokens, async (tokenAddr) => {
+          const priceData = await defiLlamaFetcher.fetchTokenPrice(tokenAddr, 'ethereum');
+          const price = priceData?.price || 0;
+          if (price > 0) {
+            logger.info(`[Balancer V3 Price] ${tokenAddr}: $${price}`);
+          }
+          return price;
+        });
+        
+        logger.info(`[Balancer V3 Filtered] Calculated TVL for ${tokenAddress}: $${tvl.toFixed(2)}`);
+      } else if (Array.isArray(filteredPoolTokens)) {
+        logger.info(`[Balancer V3 Filtered] No pool tokens found after filtering`);
+        tvl = 0;
+      } else {
+        // If it's already a number (shouldn't happen but safeguard)
+        tvl = Number(filteredPoolTokens) || 0;
+        logger.info(`[Balancer V3 Filtered] Got number directly: ${tvl}`);
+      }
+      
+      await cacheManager.set(cacheKey, tvl, 600); // 10 minutes cache
+    } else {
+      logger.info(`[Balancer V3 Filtered] Cache hit for ${tokenAddress}: $${tvl}`);
+    }
+    
+    res.json({ data: tvl });
+  } catch (error) {
+    logger.error('[Balancer V3 Filtered] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer V3 filtered TVL', data: 0 });
+  }
+});
+
+// Legacy filtered endpoint (V2 only for backward compatibility)
 app.get('/api/balancer/filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
@@ -1537,6 +1738,44 @@ app.get('/api/balancer/filtered-tvl/:tokenAddress', async (req, res) => {
   } catch (error) {
     logger.error('Balancer filtered TVL error:', error);
     res.status(500).json({ error: 'Failed to fetch Balancer filtered TVL' });
+  }
+});
+
+// Combined filtered TVL (V2 + V3)
+app.get('/api/balancer/total-filtered-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:total-filtered-tvl:${tokenAddress}`;
+    
+    let totalTVL = await cacheManager.get(cacheKey);
+    if (totalTVL === null || totalTVL === undefined) {
+      // Fetch V2 filtered TVL (returns number)
+      const v2TVL = await theGraphFetcher.fetchFilteredTokenTVL('balancer', tokenAddress);
+      
+      // Fetch V3 filtered poolTokens (returns array)
+      const v3FilteredPoolTokens = await theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', tokenAddress);
+      
+      // Calculate V3 TVL from poolTokens
+      let v3TVL = 0;
+      if (Array.isArray(v3FilteredPoolTokens)) {
+        v3TVL = await theGraphFetcher.calculateBalancerV3TVL(v3FilteredPoolTokens, async (tokenAddr) => {
+          const priceData = await defiLlamaFetcher.fetchTokenPrice(tokenAddr, 'ethereum');
+          return priceData?.price || 0;
+        });
+      } else {
+        v3TVL = Number(v3FilteredPoolTokens) || 0;
+      }
+      
+      totalTVL = v2TVL + v3TVL;
+      await cacheManager.set(cacheKey, totalTVL, 600); // 10 minutes cache
+      
+      logger.info(`Balancer total filtered TVL for ${tokenAddress}: V2=$${v2TVL.toFixed(2)}, V3=$${v3TVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+    }
+    
+    res.json({ data: totalTVL });
+  } catch (error) {
+    logger.error('Balancer total filtered TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer total filtered TVL', data: 0 });
   }
 });
 
@@ -1814,7 +2053,63 @@ app.get('/api/sushiswap/v2/token-volume/:tokenAddress', async (req, res) => {
 // ================= BALANCER ENDPOINTS =================
 // Mirror src/services/balancer.js functions
 
-// fetchBalancerTokenTVL -> /api/balancer/token-tvl/:tokenAddress
+// fetchBalancerTokenTVL -> /api/balancer/v2/token-tvl/:tokenAddress
+app.get('/api/balancer/v2/token-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:v2:token-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchData('balancer', 'token_tvl', { tokenAddress });
+      await cacheManager.set(cacheKey, data, 3600); // 1 hour
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Balancer V2 token TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer V2 token TVL' });
+  }
+});
+
+// fetchBalancerV3TokenTVL -> /api/balancer/v3/token-tvl/:tokenAddress
+app.get('/api/balancer/v3/token-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:v3:token-tvl:${tokenAddress}`;
+    
+    let tvl = await cacheManager.get(cacheKey);
+    if (tvl === null || tvl === undefined) {
+      // Fetch poolTokens data from subgraph
+      const graphData = await theGraphFetcher.fetchData('balancer_v3', 'token_tvl', { tokenAddress });
+      const poolTokens = graphData?.data || [];
+      
+      logger.info(`Balancer V3: Found ${poolTokens.length} pool tokens for ${tokenAddress}`);
+      
+      // Calculate TVL from balances using DeFiLlama prices
+      tvl = await theGraphFetcher.calculateBalancerV3TVL(poolTokens, async (tokenAddr) => {
+        const priceData = await defiLlamaFetcher.fetchTokenPrice(tokenAddr, 'ethereum');
+        return priceData?.price || 0;
+      });
+      
+      logger.info(`Balancer V3 TVL for ${tokenAddress}: $${tvl.toFixed(2)}`);
+      
+      await cacheManager.set(cacheKey, tvl, 3600); // 1 hour
+    }
+    
+    res.json({ 
+      protocol: 'balancer_v3',
+      queryType: 'token_tvl',
+      data: tvl,
+      fetched_at: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Balancer V3 token TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer V3 token TVL', data: 0 });
+  }
+});
+
+// Legacy endpoint (V2 only for backward compatibility)
 app.get('/api/balancer/token-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
@@ -1833,7 +2128,88 @@ app.get('/api/balancer/token-tvl/:tokenAddress', async (req, res) => {
   }
 });
 
-// fetchBalancerTokenVolume -> /api/balancer/token-volume/:tokenAddress
+// Combined Balancer TVL (V2 + V3)
+app.get('/api/balancer/total-tvl/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:total-tvl:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      // Fetch V2 data (already returns number)
+      const v2Data = await theGraphFetcher.fetchData('balancer', 'token_tvl', { tokenAddress });
+      const v2TVL = Number(v2Data?.data || 0);
+      
+      // Fetch V3 data (returns poolTokens array)
+      const v3GraphData = await theGraphFetcher.fetchData('balancer_v3', 'token_tvl', { tokenAddress });
+      const v3PoolTokens = v3GraphData?.data || [];
+      
+      // Calculate V3 TVL from poolTokens
+      const v3TVL = await theGraphFetcher.calculateBalancerV3TVL(v3PoolTokens, async (tokenAddr) => {
+        const priceData = await defiLlamaFetcher.fetchTokenPrice(tokenAddr, 'ethereum');
+        return priceData?.price || 0;
+      });
+      
+      data = {
+        protocol: 'balancer',
+        tokenAddress,
+        v2TVL,
+        v3TVL,
+        totalTVL: v2TVL + v3TVL,
+        fetched_at: new Date().toISOString()
+      };
+      
+      logger.info(`Balancer total TVL for ${tokenAddress}: V2=$${v2TVL.toFixed(2)}, V3=$${v3TVL.toFixed(2)}, Total=$${data.totalTVL.toFixed(2)}`);
+      
+      await cacheManager.set(cacheKey, data, 3600); // 1 hour
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Balancer total TVL error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer total TVL' });
+  }
+});
+
+// fetchBalancerTokenVolume -> /api/balancer/v2/token-volume/:tokenAddress
+app.get('/api/balancer/v2/token-volume/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:v2:token-volume:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchData('balancer', 'token_volume', { tokenAddress });
+      await cacheManager.set(cacheKey, data, 1800); // 30 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Balancer V2 token volume error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer V2 token volume' });
+  }
+});
+
+// fetchBalancerV3TokenVolume -> /api/balancer/v3/token-volume/:tokenAddress
+app.get('/api/balancer/v3/token-volume/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `balancer:v3:token-volume:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await theGraphFetcher.fetchData('balancer_v3', 'token_volume', { tokenAddress });
+      await cacheManager.set(cacheKey, data, 1800); // 30 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Balancer V3 token volume error:', error);
+    res.status(500).json({ error: 'Failed to fetch Balancer V3 token volume' });
+  }
+});
+
+// Legacy volume endpoint (V2 only)
 app.get('/api/balancer/token-volume/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;

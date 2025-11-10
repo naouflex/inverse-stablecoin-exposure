@@ -26,6 +26,7 @@ export class TheGraphFetcher {
       sushi_v2: process.env.SUSHI_V2_SUBGRAPH_ID,
       fraxswap: process.env.FRAXSWAP_SUBGRAPH_ID,
       balancer: process.env.BALANCER_V2_SUBGRAPH_ID,
+      balancer_v3: process.env.BALANCER_V3_SUBGRAPH_ID,
       // Lending protocol subgraphs (Morpho now uses unified API)
       aave_v3: process.env.AAVE_V3_MAINNET,
       euler: process.env.EULER_MAINNET
@@ -176,6 +177,21 @@ export class TheGraphFetcher {
           }
           return balancerVolume;
         
+        case 'balancer_v3':
+          // Sum up swaps and swaps1 arrays (same structure as V2)
+          let balancerV3Volume = 0;
+          if (data.swaps) {
+            for (let i = 0; i < data.swaps.length; i++) {
+              balancerV3Volume += Number(data.swaps[i].valueUSD || 0);
+            }
+          }
+          if (data.swaps1) {
+            for (let i = 0; i < data.swaps1.length; i++) {
+              balancerV3Volume += Number(data.swaps1[i].valueUSD || 0);
+            }
+          }
+          return balancerV3Volume;
+        
         default:
           return data;
       }
@@ -212,6 +228,12 @@ export class TheGraphFetcher {
         case 'balancer':
           // Return totalBalanceUSD directly from token
           return data.token ? Number(data.token.totalBalanceUSD || 0) : 0;
+        
+        case 'balancer_v3':
+          // For V3, we need to calculate TVL from poolTokens
+          // Return the raw poolTokens data for now
+          // TODO: Calculate TVL from balances × prices
+          return data.poolTokens || [];
         
         case 'sushi_v3':
           // Return totalValueLockedUSD directly from token
@@ -339,6 +361,33 @@ export class TheGraphFetcher {
           }
         }`;
       
+      case 'balancer_v3':
+        // Balancer V3: Query poolTokens to get token balances
+        // V3 doesn't have aggregated totalLiquidity, we need to calculate from balances
+        return `{
+          poolTokens(
+            where: { address: "${address}" }
+            first: 100
+          ) {
+            id
+            address
+            symbol
+            decimals
+            balance
+            pool {
+              id
+              name
+              totalShares
+              tokens {
+                address
+                symbol
+                decimals
+                balance
+              }
+            }
+          }
+        }`;
+      
       default:
         throw new Error(`TVL query not implemented for ${protocol}`);
     }
@@ -450,6 +499,28 @@ export class TheGraphFetcher {
         }`;
       
       case 'balancer':
+        return `{
+          swaps(
+            where: {
+              tokenIn: "${address}"
+              timestamp_gte: ${dayAgo}
+            }
+            first: 1000
+          ) {
+            valueUSD
+          }
+          swaps1: swaps(
+            where: {
+              tokenOut: "${address}"
+              timestamp_gte: ${dayAgo}
+            }
+            first: 1000
+          ) {
+            valueUSD
+          }
+        }`;
+      
+      case 'balancer_v3':
         return `{
           swaps(
             where: {
@@ -620,6 +691,53 @@ export class TheGraphFetcher {
   }
 
   /**
+   * Calculate TVL for Balancer V3 pools from poolTokens data
+   * @param {Array} poolTokens - Array of poolToken objects from V3
+   * @param {Function} priceGetter - Function to get token price (address => price)
+   * @returns {Promise<number>} - Total TVL in USD
+   */
+  async calculateBalancerV3TVL(poolTokens, priceGetter) {
+    if (!poolTokens || poolTokens.length === 0) {
+      return 0;
+    }
+
+    let totalTVL = 0;
+    const processedPools = new Set();
+
+    for (const poolToken of poolTokens) {
+      const pool = poolToken.pool;
+      if (!pool || processedPools.has(pool.id)) continue;
+      
+      processedPools.add(pool.id);
+      
+      // Calculate TVL for this pool from all token balances
+      let poolTVL = 0;
+      const tokens = pool.tokens || [];
+      
+      for (const token of tokens) {
+        const balance = Number(token.balance || 0);
+        const decimals = Number(token.decimals || 18);
+        const address = token.address?.toLowerCase();
+        
+        if (balance > 0 && address) {
+          try {
+            const price = await priceGetter(address);
+            const amount = balance / Math.pow(10, decimals);
+            poolTVL += amount * (price || 0);
+          } catch (error) {
+            console.warn(`Error getting price for ${address}:`, error.message);
+          }
+        }
+      }
+      
+      totalTVL += poolTVL;
+      console.log(`Balancer V3 pool ${pool.name}: $${poolTVL.toFixed(2)} TVL`);
+    }
+
+    return totalTVL;
+  }
+
+  /**
    * Get current request queue status for monitoring
    */
   getQueueStatus() {
@@ -635,7 +753,7 @@ export class TheGraphFetcher {
 
   /**
    * Fetch filtered TVL for a token excluding same-protocol stablecoin pairs
-   * @param {string} protocol - Protocol name (uniswap_v2, uniswap_v3, sushi_v2, sushi_v3, balancer)
+   * @param {string} protocol - Protocol name (uniswap_v2, uniswap_v3, sushi_v2, sushi_v3, balancer, balancer_v3)
    * @param {string} tokenAddress - The token contract address
    * @returns {Promise<number>} - Filtered TVL in USD
    */
@@ -643,7 +761,64 @@ export class TheGraphFetcher {
     try {
       console.log(`Fetching filtered ${protocol} TVL for ${tokenAddress}`);
       
-      // First get all pairs/pools for this token
+      // Special handling for Balancer V3 (uses different data structure)
+      if (protocol === 'balancer_v3') {
+        const poolsData = await this.fetchData(protocol, 'token_tvl', { tokenAddress });
+        const poolTokens = poolsData?.data || [];
+        
+        if (poolTokens.length === 0) {
+          console.log(`No pool tokens found for ${protocol} ${tokenAddress}`);
+          return 0;
+        }
+        
+        // Filter out pools with same-protocol tokens
+        const filteredPoolTokens = [];
+        
+        for (const poolToken of poolTokens) {
+          const pool = poolToken.pool;
+          if (!pool) continue;
+          
+          // Get all tokens in this pool
+          const poolTokensList = pool.tokens || [];
+          
+          // Check if any other token in the pool is from the same protocol
+          let shouldExclude = false;
+          for (const token of poolTokensList) {
+            const otherTokenAddress = token.address?.toLowerCase();
+            
+            // Skip the token we're searching for
+            if (otherTokenAddress === tokenAddress.toLowerCase()) continue;
+            
+            if (this.areTokensFromSameProtocol(tokenAddress, otherTokenAddress)) {
+              shouldExclude = true;
+              console.log(`Excluding ${protocol} pool ${pool.name} - contains same-protocol tokens`);
+              break;
+            }
+          }
+          
+          if (!shouldExclude) {
+            filteredPoolTokens.push(poolToken);
+            console.log(`Including ${protocol} pool ${pool.name} for filtered TVL`);
+          }
+        }
+        
+        console.log(`Filtered ${protocol}: ${filteredPoolTokens.length} pools from ${poolTokens.length} total`);
+        // Return the filtered poolTokens array - TVL calculation happens in endpoint
+        return filteredPoolTokens;
+      }
+      
+      // Special handling for Balancer V2 (uses token entity, not pairs)
+      if (protocol === 'balancer') {
+        // Balancer V2 doesn't have pair-level filtering
+        // We just return the token's total TVL since we can't exclude specific pools
+        // The token.totalBalanceUSD already aggregates across all pools
+        const tokenData = await this.fetchData(protocol, 'token_tvl', { tokenAddress });
+        const tvl = Number(tokenData?.data || 0);
+        console.log(`Balancer V2 filtered TVL for ${tokenAddress}: $${tvl.toFixed(2)} (no pair-level filtering available)`);
+        return tvl;
+      }
+      
+      // Standard handling for V2-style protocols (pairs)
       const pairsData = await this.fetchData(protocol, 'token_pairs', { tokenAddress, first: 100 });
       
       if (!pairsData.data || !pairsData.data.pairs) {

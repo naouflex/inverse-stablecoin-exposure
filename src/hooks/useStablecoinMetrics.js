@@ -852,42 +852,24 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   // DEX liquidity - Group 2 (staggered loading)
   const primaryContractAddress = contractAddress; // First contract address
   
-  // Use filtered TVL hooks to exclude same-protocol stablecoin pairs (e.g., DAI-USDS, USDe-sUSDe)
-  const curveTVL = useCurveFilteredTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
-  const balancerTVL = useBalancerFilteredTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });  
-  const uniswapTVL = useUniswapFilteredTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
-  const sushiTVL = useSushiFilteredTotalTVL(primaryContractAddress, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  // Prepare all contract addresses (including staked versions) for Pendle PT detection
+  const allDEXAddresses = useMemo(() => {
+    return Object.values(contractAddresses).filter(addr => addr && addr !== "0x0000000000000000000000000000000000000000");
+  }, [contractAddresses]);
   
-  // For multi-token stablecoins (like USDS+DAI), add additional contract addresses
-  const additionalContracts = Object.entries(contractAddresses).filter(([key, addr]) => addr !== primaryContractAddress);
+  const additionalDEXAddresses = useMemo(() => {
+    return allDEXAddresses.filter(addr => addr !== primaryContractAddress);
+  }, [allDEXAddresses, primaryContractAddress]);
   
-  const additionalCurveTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useCurveFilteredTVL(contractAddress, {
-      ...options,
-      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
-    })
-  );
+  // Use filtered TVL hooks with all addresses for Pendle PT detection
+  const curveTVL = useCurveFilteredTVL(primaryContractAddress, additionalDEXAddresses, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  const balancerTVL = useBalancerFilteredTVL(primaryContractAddress, additionalDEXAddresses, { ...options, enabled: enableDEX && (options.enabled !== false) });  
+  const uniswapTVL = useUniswapFilteredTotalTVL(primaryContractAddress, additionalDEXAddresses, { ...options, enabled: enableDEX && (options.enabled !== false) });
+  const sushiTVL = useSushiFilteredTotalTVL(primaryContractAddress, additionalDEXAddresses, { ...options, enabled: enableDEX && (options.enabled !== false) });
   
-  const additionalBalancerTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useBalancerFilteredTVL(contractAddress, {
-      ...options,
-      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
-    })
-  );
-  
-  const additionalUniswapTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useUniswapFilteredTotalTVL(contractAddress, {
-      ...options,
-      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
-    })
-  );
-  
-  const additionalSushiTVL = additionalContracts.map(([tokenKey, contractAddress]) => 
-    useSushiFilteredTotalTVL(contractAddress, {
-      ...options,
-      enabled: enableDEX && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
-    })
-  );
+  // NOTE: Additional contracts are now passed as additionalDEXAddresses parameter
+  // to the hooks above, so we don't need separate queries anymore
+  // This simplifies the logic and allows Pendle PT detection to work across all addresses
   
   // Lending markets - Group 3 (staggered loading)
   // Create base addresses (always available)
@@ -1145,74 +1127,66 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   }, [stablecoin.symbol, stablecoin.stakedCoingeckoIds, firstStakedContract, 
       stakedSupplyFromCoinGecko, stakedSupplyFromContract, stakedSupplyFromBlockchain, stakedContractDecimals]);
 
-  // Calculate combined TVL values (primary + additional contracts)
+  // Calculate combined TVL values (now includes all contracts + Pendle PT in single query)
   const combinedCurveTVL = useMemo(() => {
-    const primary = curveTVL.data || 0;
-    const additional = additionalCurveTVL.reduce((sum, query) => sum + (query.data || 0), 0);
-    const total = primary + additional;
-    const isLoading = curveTVL.isLoading || additionalCurveTVL.some(q => q.isLoading);
+    const total = curveTVL.data || 0;
+    const isLoading = curveTVL.isLoading;
     
     // Debug logging for Curve TVL
-    if (!isLoading && (primary > 0 || additional > 0)) {
-      console.log(`[${stablecoin.symbol}] Curve TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    if (!isLoading && total > 0) {
+      console.log(`[${stablecoin.symbol}] Curve TVL (with Pendle PT): $${total.toLocaleString()}`);
     }
     
     return {
       data: { data: total },
       isLoading
     };
-  }, [curveTVL, additionalCurveTVL, stablecoin.symbol]);
+  }, [curveTVL, stablecoin.symbol]);
 
   const combinedBalancerTVL = useMemo(() => {
-    const primary = balancerTVL.data || 0;
-    const additional = additionalBalancerTVL.reduce((sum, query) => sum + (query.data || 0), 0);
-    const total = primary + additional;
-    const isLoading = balancerTVL.isLoading || additionalBalancerTVL.some(q => q.isLoading);
+    const total = balancerTVL.data || 0;
+    const isLoading = balancerTVL.isLoading;
     
     // Debug logging for Balancer TVL
-    if (!isLoading && (primary > 0 || additional > 0)) {
-      console.log(`[${stablecoin.symbol}] Balancer TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    if (!isLoading && total > 0) {
+      console.log(`[${stablecoin.symbol}] Balancer TVL (with Pendle PT): $${total.toLocaleString()}`);
     }
     
     return {
       data: { data: total },
       isLoading
     };
-  }, [balancerTVL, additionalBalancerTVL, stablecoin.symbol]);
+  }, [balancerTVL, stablecoin.symbol]);
 
   const combinedUniswapTVL = useMemo(() => {
-    const primary = uniswapTVL.data || 0;
-    const additional = additionalUniswapTVL.reduce((sum, query) => sum + (query.data || 0), 0);
-    const total = primary + additional;
-    const isLoading = uniswapTVL.isLoading || additionalUniswapTVL.some(q => q.isLoading);
+    const total = uniswapTVL.data || 0;
+    const isLoading = uniswapTVL.isLoading;
     
     // Debug logging for Uniswap TVL
-    if (!isLoading && (primary > 0 || additional > 0)) {
-      console.log(`[${stablecoin.symbol}] Uniswap TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    if (!isLoading && total > 0) {
+      console.log(`[${stablecoin.symbol}] Uniswap TVL (with Pendle PT): $${total.toLocaleString()}`);
     }
     
     return {
       data: { data: total },
       isLoading
     };
-  }, [uniswapTVL, additionalUniswapTVL, stablecoin.symbol]);
+  }, [uniswapTVL, stablecoin.symbol]);
 
   const combinedSushiTVL = useMemo(() => {
-    const primary = sushiTVL.data || 0;
-    const additional = additionalSushiTVL.reduce((sum, query) => sum + (query.data || 0), 0);
-    const total = primary + additional;
-    const isLoading = sushiTVL.isLoading || additionalSushiTVL.some(q => q.isLoading);
+    const total = sushiTVL.data || 0;
+    const isLoading = sushiTVL.isLoading;
     
     // Debug logging for Sushi TVL
-    if (!isLoading && (primary > 0 || additional > 0)) {
-      console.log(`[${stablecoin.symbol}] Sushi TVL - Primary: $${primary.toLocaleString()}, Additional: $${additional.toLocaleString()}, Total: $${total.toLocaleString()}`);
+    if (!isLoading && total > 0) {
+      console.log(`[${stablecoin.symbol}] Sushi TVL (with Pendle PT): $${total.toLocaleString()}`);
     }
     
     return {
       data: { data: total },
       isLoading
     };
-  }, [sushiTVL, additionalSushiTVL, stablecoin.symbol]);
+  }, [sushiTVL, stablecoin.symbol]);
 
   return {
     // Supply metrics
