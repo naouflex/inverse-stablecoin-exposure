@@ -137,25 +137,93 @@ function MetricRow({ metricKey, metricLabel, sectionColor, allStablecoinMetrics,
         return metrics.totalMainnetLiquidity?.isLoading ? <Skeleton height="20px" /> : 
           <Text fontSize="sm" fontWeight="bold" color="blue.600">{formatStablecoinAmount(metrics.totalMainnetLiquidity?.data || 0)}</Text>;
       
-      case 'aaveCollateral':
+      case 'aaveCollateral': {
+        const aaveData = metrics.totalLendingUsage?.data?.protocols?.aave_v3;
+        const totalTVL = aaveData?.totalTVL || 0;
+        const directTVL = aaveData?.directTVL || 0;
+        const ptTVL = aaveData?.ptTVL || 0;
+        const ptMarkets = aaveData?.ptMarkets || 0;
+        
         return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
-          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.aave_v3?.totalTVL || 0)}</Text>;
+          <Tooltip 
+            label={ptMarkets > 0 ? `Direct: ${formatStablecoinAmount(directTVL)} | Pendle PT: ${formatStablecoinAmount(ptTVL)} (${ptMarkets} markets)` : `Direct: ${formatStablecoinAmount(directTVL)}`}
+            placement="top"
+          >
+            <Text fontSize="sm">{formatStablecoinAmount(totalTVL)}</Text>
+          </Tooltip>;
+      }
       
-      case 'morphoCollateral':
+      case 'morphoCollateral': {
+        const morphoData = metrics.totalLendingUsage?.data?.protocols?.morpho_combined;
+        const totalTVL = morphoData?.totalTVL || 0;
+        const directTVL = morphoData?.directTVL || 0;
+        const ptTVL = morphoData?.ptTVL || 0;
+        const ptMarkets = morphoData?.ptMarkets || 0;
+        
         return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
-          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.morpho_combined?.totalTVL || 0)}</Text>;
+          <Tooltip 
+            label={ptMarkets > 0 ? `Direct: ${formatStablecoinAmount(directTVL)} | Pendle PT: ${formatStablecoinAmount(ptTVL)} (${ptMarkets} markets)` : `Direct: ${formatStablecoinAmount(directTVL)}`}
+            placement="top"
+          >
+            <Text fontSize="sm">{formatStablecoinAmount(totalTVL)}</Text>
+          </Tooltip>;
+      }
       
-      case 'eulerCollateral':
+      case 'eulerCollateral': {
+        const eulerData = metrics.totalLendingUsage?.data?.protocols?.euler;
+        const totalTVL = eulerData?.totalTVL || 0;
+        const directTVL = eulerData?.directTVL || 0;
+        const ptTVL = eulerData?.ptTVL || 0;
+        const ptMarkets = eulerData?.ptMarkets || 0;
+        
         return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
-          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.euler?.totalTVL || 0)}</Text>;
+          <Tooltip 
+            label={ptMarkets > 0 ? `Direct: ${formatStablecoinAmount(directTVL)} | Pendle PT: ${formatStablecoinAmount(ptTVL)} (${ptMarkets} markets)` : `Direct: ${formatStablecoinAmount(directTVL)}`}
+            placement="top"
+          >
+            <Text fontSize="sm">{formatStablecoinAmount(totalTVL)}</Text>
+          </Tooltip>;
+      }
       
-      case 'fluidCollateral':
+      case 'fluidCollateral': {
+        const fluidData = metrics.totalLendingUsage?.data?.protocols?.fluid;
+        const totalTVL = fluidData?.totalTVL || 0;
+        const directTVL = fluidData?.directTVL || 0;
+        const ptTVL = fluidData?.ptTVL || 0;
+        const ptMarkets = fluidData?.ptMarkets || 0;
+        
         return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
-          <Text fontSize="sm">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.protocols?.fluid?.totalTVL || 0)}</Text>;
+          <Tooltip 
+            label={ptMarkets > 0 ? `Direct: ${formatStablecoinAmount(directTVL)} | Pendle PT: ${formatStablecoinAmount(ptTVL)} (${ptMarkets} markets)` : `Direct: ${formatStablecoinAmount(directTVL)}`}
+            placement="top"
+          >
+            <Text fontSize="sm">{formatStablecoinAmount(totalTVL)}</Text>
+          </Tooltip>;
+      }
       
-      case 'totalLendingMarkets':
+      case 'totalLendingMarkets': {
+        const totalTVL = metrics.totalLendingUsage?.data?.totalLendingTVL || 0;
+        const pendleData = metrics.totalLendingUsage?.data?.pendle;
+        const ptTokensFound = pendleData?.ptTokensFound || 0;
+        const protocols = metrics.totalLendingUsage?.data?.protocols || {};
+        
+        // Calculate total PT TVL across all protocols
+        const totalPTTVL = (protocols.aave_v3?.ptTVL || 0) + 
+                           (protocols.morpho_combined?.ptTVL || 0) + 
+                           (protocols.euler?.ptTVL || 0) + 
+                           (protocols.fluid?.ptTVL || 0);
+        
+        const tooltipLabel = ptTokensFound > 0 
+          ? `Total: ${formatStablecoinAmount(totalTVL)} | Pendle PT across all protocols: ${formatStablecoinAmount(totalPTTVL)} (${ptTokensFound} PT tokens found)`
+          : `Total: ${formatStablecoinAmount(totalTVL)}`;
+        
         return metrics.totalLendingUsage?.isLoading ? <Skeleton height="20px" /> : 
-          <Text fontSize="sm" fontWeight="bold" color="purple.600">{formatStablecoinAmount(metrics.totalLendingUsage?.data?.totalLendingTVL || 0)}</Text>;
+          <Tooltip label={tooltipLabel} placement="top">
+            <Text fontSize="sm" fontWeight="bold" color="purple.600">
+              {formatStablecoinAmount(totalTVL)}
+            </Text>
+          </Tooltip>;
+      }
       
       case 'insuranceFund':
         return metrics.insuranceFund?.isLoading ? <Skeleton height="20px" /> : 

@@ -336,8 +336,8 @@ export function useFluidCollateralUsage(contractAddress, options = {}) {
 }
 
 /**
- * Hook to fetch combined lending market usage using individual protocol endpoints
- * Now supports multiple contract addresses (including staked tokens)
+ * Hook to fetch combined lending market usage with Pendle PT support
+ * Now uses enhanced endpoint that includes PT tokens wrapping the stablecoin
  */
 export function useTotalLendingMarketUsage(contractAddresses, options = {}) {
   // Convert contractAddresses to array of addresses for querying
@@ -357,51 +357,77 @@ export function useTotalLendingMarketUsage(contractAddresses, options = {}) {
     return [];
   }, [contractAddresses]);
 
-  // Create queries for each address and each protocol
-  const aaveQueries = addressesToQuery.map(address => 
-    useAaveCollateralUsage(address, options)
-  );
-  const morphoQueries = addressesToQuery.map(address => 
-    useMorphoCollateralUsage(address, options)
-  );
-  const eulerQueries = addressesToQuery.map((address, index) => {
-    console.log(`🔍 Creating Euler query ${index + 1}/${addressesToQuery.length} for address: ${address}`);
-    return useEulerCollateralUsage(address, options);
-  });
-  const fluidQueries = addressesToQuery.map(address => 
-    useFluidCollateralUsage(address, options)
-  );
-  
-  return useMemo(() => {
-    // Aggregate results from all queries with safety checks
-    const safeAaveQueries = Array.isArray(aaveQueries) ? aaveQueries : [];
-    const safeMorphoQueries = Array.isArray(morphoQueries) ? morphoQueries : [];
-    const safeEulerQueries = Array.isArray(eulerQueries) ? eulerQueries : [];
-    const safeFluidQueries = Array.isArray(fluidQueries) ? fluidQueries : [];
-    
-    const aaveTVL = safeAaveQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
-    const morphoTVL = safeMorphoQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
-    const eulerTVL = safeEulerQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
-    const fluidTVL = safeFluidQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
-    const total = aaveTVL + morphoTVL + eulerTVL + fluidTVL;
-    
-    const allQueries = [...safeAaveQueries, ...safeMorphoQueries, ...safeEulerQueries, ...safeFluidQueries];
-    const isLoading = allQueries.some(query => query?.isLoading);
-    
-    return {
-      data: {
-        totalLendingTVL: total,
-        protocols: {
-          aave_v3: { totalTVL: aaveTVL },
-          morpho_combined: { totalTVL: morphoTVL },
-          euler: { totalTVL: eulerTVL },
-          fluid: { totalTVL: fluidTVL }
+  // Use the enhanced endpoint with Pendle PT support
+  return useQuery({
+    queryKey: ['total-lending-with-pendle', addressesToQuery.sort().join('-')],
+    queryFn: async () => {
+      if (!addressesToQuery || addressesToQuery.length === 0) {
+        return {
+          data: {
+            totalLendingTVL: 0,
+            protocols: {
+              aave_v3: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              morpho_combined: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              euler: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              fluid: { totalTVL: 0, directTVL: 0, ptTVL: 0 }
+            }
+          },
+          _unavailable: true
+        };
+      }
+      
+      try {
+        const primaryAddress = addressesToQuery[0];
+        const additionalAddresses = addressesToQuery.slice(1);
+        
+        // Build URL with additional addresses as query param
+        let url = `/lending/total-tvl/${primaryAddress}`;
+        if (additionalAddresses.length > 0) {
+          url += `?additionalAddresses=${additionalAddresses.join(',')}`;
         }
-      },
-      isLoading,
-      source: 'individual_protocol_endpoints_multi_address'
-    };
-  }, [aaveQueries, morphoQueries, eulerQueries, fluidQueries]);
+        
+        console.log(`Fetching enhanced lending TVL from: ${url}`);
+        const response = await api.get(url);
+        
+        return {
+          data: {
+            totalLendingTVL: response.data?.totalLendingTVL || 0,
+            protocols: response.data?.protocols || {
+              aave_v3: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              morpho_combined: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              euler: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              fluid: { totalTVL: 0, directTVL: 0, ptTVL: 0 }
+            },
+            pendle: response.data?.pendle || { ptTokensFound: 0, ptDetails: [] }
+          },
+          source: 'enhanced_endpoint_with_pendle'
+        };
+      } catch (error) {
+        console.warn('Enhanced lending TVL fetch failed:', error);
+        return {
+          data: {
+            totalLendingTVL: 0,
+            protocols: {
+              aave_v3: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              morpho_combined: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              euler: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+              fluid: { totalTVL: 0, directTVL: 0, ptTVL: 0 }
+            }
+          },
+          _unavailable: true,
+          error: error.message
+        };
+      }
+    },
+    enabled: !!addressesToQuery && addressesToQuery.length > 0 && (options.enabled !== false),
+    staleTime: 15 * 60 * 1000, // 15 minutes
+    cacheTime: 60 * 60 * 1000, // 1 hour
+    retry: 1,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    ...options
+  });
 }
 
 // ================= SAFETY BUFFER METRICS =================
@@ -901,41 +927,66 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   
   const totalLendingUsage = useMemo(() => {
     // Ensure we have valid data structure even if query fails
-    const queryData = totalLendingQuery.data || {};
+    const queryData = totalLendingQuery.data?.data || {};
     const total = queryData.totalLendingTVL || 0;
     const isLoading = totalLendingQuery.isLoading;
     const protocols = queryData.protocols || {
-      aave_v3: { totalTVL: 0 },
-      morpho_combined: { totalTVL: 0 },
-      euler: { totalTVL: 0 },
-      fluid: { totalTVL: 0 }
+      aave_v3: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+      morpho_combined: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+      euler: { totalTVL: 0, directTVL: 0, ptTVL: 0 },
+      fluid: { totalTVL: 0, directTVL: 0, ptTVL: 0 }
     };
+    const pendleData = queryData.pendle || { ptTokensFound: 0, ptDetails: [] };
     
-    // Debug logging for lending usage
+    // Debug logging for lending usage with Pendle PT breakdown
     if (!isLoading && Object.keys(allContractAddresses).length > 0) {
       const regularCount = Object.keys(contractAddresses).length;
       const stakedCount = Object.keys(stablecoin.stakedContractAddresses || {}).length;
       
-      console.log(`[${stablecoin.symbol}] Lending query results (combined):`, {
+      console.log(`[${stablecoin.symbol}] Lending query results (with Pendle PT):`, {
         totalTVL: total,
         addressCounts: { regular: regularCount, staked: stakedCount },
-        protocols: Object.entries(protocols).map(([name, data]) => `${name}: $${(data?.totalTVL || 0).toLocaleString()}`).join(', '),
+        pendlePTTokens: pendleData.ptTokensFound,
+        protocols: Object.entries(protocols).map(([name, data]) => 
+          `${name}: $${(data?.totalTVL || 0).toLocaleString()} (direct: $${(data?.directTVL || 0).toLocaleString()}, PT: $${(data?.ptTVL || 0).toLocaleString()})`
+        ).join(', '),
         queryError: totalLendingQuery.error ? totalLendingQuery.error.message : null
       });
     }
     
-    // Additional safety check for data structure
+    // Additional safety check for data structure with PT breakdown
     const safeProtocols = {
-      aave_v3: { totalTVL: protocols?.aave_v3?.totalTVL || 0 },
-      morpho_combined: { totalTVL: protocols?.morpho_combined?.totalTVL || 0 },
-      euler: { totalTVL: protocols?.euler?.totalTVL || 0 },
-      fluid: { totalTVL: protocols?.fluid?.totalTVL || 0 }
+      aave_v3: { 
+        totalTVL: protocols?.aave_v3?.totalTVL || 0,
+        directTVL: protocols?.aave_v3?.directTVL || 0,
+        ptTVL: protocols?.aave_v3?.ptTVL || 0,
+        ptMarkets: protocols?.aave_v3?.ptMarkets || 0
+      },
+      morpho_combined: { 
+        totalTVL: protocols?.morpho_combined?.totalTVL || 0,
+        directTVL: protocols?.morpho_combined?.directTVL || 0,
+        ptTVL: protocols?.morpho_combined?.ptTVL || 0,
+        ptMarkets: protocols?.morpho_combined?.ptMarkets || 0
+      },
+      euler: { 
+        totalTVL: protocols?.euler?.totalTVL || 0,
+        directTVL: protocols?.euler?.directTVL || 0,
+        ptTVL: protocols?.euler?.ptTVL || 0,
+        ptMarkets: protocols?.euler?.ptMarkets || 0
+      },
+      fluid: { 
+        totalTVL: protocols?.fluid?.totalTVL || 0,
+        directTVL: protocols?.fluid?.directTVL || 0,
+        ptTVL: protocols?.fluid?.ptTVL || 0,
+        ptMarkets: protocols?.fluid?.ptMarkets || 0
+      }
     };
     
     return {
       data: {
         totalLendingTVL: total,
-        protocols: safeProtocols
+        protocols: safeProtocols,
+        pendle: pendleData
       },
       isLoading,
       error: totalLendingQuery.error

@@ -1392,6 +1392,47 @@ export async function getLastRefreshTime() {
   }
 }
 
+// ================= PENDLE CACHE FUNCTIONS =================
+
+/**
+ * Fetch all Pendle markets from cache
+ * @returns {Promise<object>} - All Pendle markets data
+ */
+export async function fetchPendleAllMarkets() {
+  try {
+    const response = await cacheApi.get('/pendle/all-markets');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching Pendle all markets:', error);
+    return {
+      markets: [],
+      total: 0,
+      _unavailable: true,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Fetch PT token addresses for a stablecoin
+ * @param {string} tokenAddress - Primary token address
+ * @returns {Promise<object>} - PT token data
+ */
+export async function fetchPendlePTTokensForStablecoin(tokenAddress) {
+  try {
+    const response = await cacheApi.get(`/pendle/pt-tokens/${tokenAddress}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching PT tokens for ${tokenAddress}:`, error);
+    return {
+      ptAddresses: [],
+      ptDetails: [],
+      marketCount: 0,
+      error: error.message
+    };
+  }
+}
+
 // ================= MANUAL DATA FUNCTIONS =================
 
 export async function getManualData(symbol, metric) {

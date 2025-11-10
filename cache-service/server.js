@@ -24,6 +24,7 @@ import { CurveFetcher } from './services/curve-fetcher.js';
 import { FluidFetcher } from './services/fluid-fetcher.js';
 import { StablecoinFetcher } from './services/stablecoin-fetcher.js';
 import { MorphoFetcher } from './services/morpho-fetcher.js';
+import { PendleFetcher } from './services/pendle-fetcher.js';
 import { DataValidator } from './services/data-validator.js';
 // Using unified MorphoFetcher for all Morpho markets
 
@@ -135,6 +136,7 @@ const ethereumFetcher = new EthereumFetcher();
 const curveFetcher = new CurveFetcher();
 const fluidFetcher = new FluidFetcher();
 const morphoFetcher = new MorphoFetcher();
+const pendleFetcher = new PendleFetcher();
 // Will use theGraphFetcher for lending protocols
 let stablecoinFetcher; // Will be initialized after Redis connection
 
@@ -340,6 +342,7 @@ app.get('/api/health', async (req, res) => {
     ethereumQueue: ethereumFetcher.getQueueStatus(),
     fluidQueue: fluidFetcher.getQueueStatus(),
     morphoQueue: morphoFetcher.getQueueStatus(),
+    pendleQueue: pendleFetcher.getQueueStatus(),
     stablecoinQueue: stablecoinFetcher ? stablecoinFetcher.getQueueStatus() : null
   };
 
@@ -493,6 +496,7 @@ app.post('/api/admin/clean-cache', async (req, res) => {
         'aave': 'aave:*',
         'morpho': 'morpho:*',
         'euler': 'euler:*',
+        'pendle': 'pendle:*',
         'lending': '*lending*',
         'stale': '*:stale',
         'manual': 'manual:*',
@@ -1173,6 +1177,7 @@ app.get('/api/admin/queue-status', async (req, res) => {
       ethereum: ethereumFetcher.getQueueStatus(),
       fluid: fluidFetcher.getQueueStatus(),
       morpho: morphoFetcher.getQueueStatus(),
+      pendle: pendleFetcher.getQueueStatus(),
       stablecoin: stablecoinFetcher ? stablecoinFetcher.getQueueStatus() : null,
       timestamp: new Date().toISOString()
     };
@@ -2216,6 +2221,71 @@ app.get('/api/stablecoin/staking/:tokenAddress', async (req, res) => {
   }
 });
 
+// ================= PENDLE ENDPOINTS =================
+
+// Get all Pendle markets
+app.get('/api/pendle/all-markets', async (req, res) => {
+  try {
+    const cacheKey = 'pendle:all-markets';
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      data = await pendleFetcher.fetchAllMarkets();
+      await cacheManager.set(cacheKey, data, 3600); // 1 hour cache
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Pendle all markets error:', error);
+    res.status(500).json({ error: 'Failed to fetch Pendle markets' });
+  }
+});
+
+// Get PT token addresses for a stablecoin
+app.get('/api/pendle/pt-tokens/:tokenAddress', async (req, res) => {
+  try {
+    const { tokenAddress } = req.params;
+    const cacheKey = `pendle:pt-tokens:${tokenAddress}`;
+    
+    let data = await cacheManager.get(cacheKey);
+    if (!data) {
+      // Get all markets from cache
+      const allMarkets = await cacheManager.get('pendle:all-markets');
+      if (!allMarkets) {
+        const freshMarkets = await pendleFetcher.fetchAllMarkets();
+        await cacheManager.set('pendle:all-markets', freshMarkets, 3600);
+        data = pendleFetcher.getPTTokensForStablecoin([tokenAddress], freshMarkets);
+      } else {
+        data = pendleFetcher.getPTTokensForStablecoin([tokenAddress], allMarkets);
+      }
+      await cacheManager.set(cacheKey, data, 1800); // 30 minutes
+    }
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Pendle PT tokens error:', error);
+    res.status(500).json({ error: 'Failed to fetch PT tokens' });
+  }
+});
+
+// Pendle queue status monitoring endpoint
+app.get('/api/pendle/queue-status', async (req, res) => {
+  try {
+    const queueStatus = pendleFetcher.getQueueStatus();
+    const healthCheck = await pendleFetcher.healthCheck();
+    
+    res.json({
+      service: 'pendle',
+      ...queueStatus,
+      health: healthCheck,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Pendle queue status error:', error);
+    res.status(500).json({ error: 'Failed to get Pendle queue status' });
+  }
+});
+
 // ================= LENDING PROTOCOL ENDPOINTS =================
 
 // Aave V3 reserve data
@@ -2359,60 +2429,171 @@ app.get('/api/lending/euler/:tokenAddress', async (req, res) => {
   }
 });
 
-// Combined lending TVL for a token
+// Combined lending TVL for a token with Pendle PT support
 app.get('/api/lending/total-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `total-lending-tvl-${tokenAddress}`;
+    // Support multiple token addresses via query param (for staked versions)
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
+    
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `total-lending-tvl-${allTokenAddresses.sort().join('-')}`;
     
     let data = await cacheManager.get(cacheKey);
     if (!data) {
-      // Fetch data from all lending protocols using unified approach
-      const [aaveData, morphoData, eulerData] = await Promise.all([
-        theGraphFetcher.fetchData('aave_v3', 'lending_reserves', { tokenAddress }),
-        morphoFetcher.getTokenMarkets(tokenAddress),
-        theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress })
+      logger.info(`Fetching enhanced lending TVL for ${allTokenAddresses.length} addresses: ${allTokenAddresses.join(', ')}`);
+      
+      // Step 1: Get Pendle markets and extract PT tokens for ALL stablecoin addresses
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
+      
+      logger.info(`Found ${ptAddresses.length} PT tokens for ${allTokenAddresses.join(', ')}`);
+      
+      // Step 2: Fetch direct lending data for base tokens
+      const [aaveData, morphoData, eulerData, fluidData] = await Promise.all([
+        Promise.all(allTokenAddresses.map(addr => 
+          theGraphFetcher.fetchData('aave_v3', 'lending_reserves', { tokenAddress: addr })
+        )),
+        Promise.all(allTokenAddresses.map(addr => 
+          morphoFetcher.getTokenMarkets(addr)
+        )),
+        Promise.all(allTokenAddresses.map(addr => 
+          theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress: addr })
+        )),
+        Promise.all(allTokenAddresses.map(addr => 
+          fluidFetcher.fetchData('token_borrow', { tokenAddress: addr })
+        ))
       ]);
       
-      // Debug the actual data structure
-      console.log('Debug aaveData structure:', JSON.stringify(aaveData, null, 2));
-      console.log('Debug morphoData structure:', JSON.stringify(morphoData, null, 2));
+      // Step 3: Fetch lending data for PT tokens (if any found)
+      let aavePTData = [];
+      let morphoPTData = [];
+      let eulerPTData = [];
+      let fluidPTData = [];
       
-      const aaveMarkets = aaveData?.data?.markets || [];
-      const eulerMarkets = eulerData?.data?.markets || [];
+      if (ptAddresses.length > 0) {
+        logger.info(`Querying lending protocols for ${ptAddresses.length} PT tokens...`);
+        [aavePTData, morphoPTData, eulerPTData, fluidPTData] = await Promise.all([
+          Promise.all(ptAddresses.map(addr => 
+            theGraphFetcher.fetchData('aave_v3', 'lending_reserves', { tokenAddress: addr })
+          )),
+          Promise.all(ptAddresses.map(addr => 
+            morphoFetcher.getTokenMarkets(addr)
+          )),
+          Promise.all(ptAddresses.map(addr => 
+            theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress: addr })
+          )),
+          Promise.all(ptAddresses.map(addr => 
+            fluidFetcher.fetchData('token_borrow', { tokenAddress: addr })
+          ))
+        ]);
+      }
       
+      // Step 4: Aggregate Aave TVL (direct + PT)
+      const aaveDirectMarkets = aaveData.flatMap(d => d?.data?.markets || []);
+      const aavePTMarkets = aavePTData.flatMap(d => d?.data?.markets || []);
+      const aaveDirectTVL = aaveDirectMarkets.reduce((sum, m) => sum + (Number(m.totalValueLockedUSD) || 0), 0);
+      const aavePTTVL = aavePTMarkets.reduce((sum, m) => sum + (Number(m.totalValueLockedUSD) || 0), 0);
+      
+      // Step 5: Aggregate Morpho TVL (direct + PT)
+      const morphoDirectTVL = morphoData.reduce((sum, d) => sum + (d?.totalCollateralTVL || 0), 0);
+      const morphoPTTVL = morphoPTData.reduce((sum, d) => sum + (d?.totalCollateralTVL || 0), 0);
+      
+      // Step 6: Aggregate Euler TVL (direct + PT)
+      const eulerDirectMarkets = eulerData.flatMap(d => d?.data?.evaultCreateds || []);
+      const eulerPTMarkets = eulerPTData.flatMap(d => d?.data?.evaultCreateds || []);
+      
+      // For Euler, we need to get on-chain data
+      let eulerDirectTVL = 0;
+      let eulerPTTVL = 0;
+      
+      for (const vault of eulerDirectMarkets) {
+        try {
+          const vaultData = await ethereumFetcher.getEulerVaultData(vault.dToken);
+          eulerDirectTVL += vaultData?.tvlUSD || 0;
+        } catch (error) {
+          logger.warn(`Error fetching Euler vault data:`, error.message);
+        }
+      }
+      
+      for (const vault of eulerPTMarkets) {
+        try {
+          const vaultData = await ethereumFetcher.getEulerVaultData(vault.dToken);
+          eulerPTTVL += vaultData?.tvlUSD || 0;
+        } catch (error) {
+          logger.warn(`Error fetching Euler PT vault data:`, error.message);
+        }
+      }
+      
+      // Step 7: Aggregate Fluid TVL (direct + PT)
+      const fluidDirectTVL = fluidData.reduce((sum, d) => sum + (Number(d?.data) || 0), 0);
+      const fluidPTTVL = fluidPTData.reduce((sum, d) => sum + (Number(d?.data) || 0), 0);
+      
+      // Step 8: Build response with PT breakdown
       data = {
         tokenAddress,
+        allTokenAddresses,
         protocols: {
           aave_v3: {
-            totalTVL: Array.isArray(aaveMarkets) ? aaveMarkets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0) : 0,
-            totalDeposits: Array.isArray(aaveMarkets) ? aaveMarkets.reduce((sum, market) => sum + (Number(market.totalDepositBalanceUSD) || 0), 0) : 0,
-            totalBorrows: Array.isArray(aaveMarkets) ? aaveMarkets.reduce((sum, market) => sum + (Number(market.totalBorrowBalanceUSD) || 0), 0) : 0,
-            markets: Array.isArray(aaveMarkets) ? aaveMarkets.length : 0
+            totalTVL: aaveDirectTVL + aavePTTVL,
+            directTVL: aaveDirectTVL,
+            ptTVL: aavePTTVL,
+            directMarkets: aaveDirectMarkets.length,
+            ptMarkets: aavePTMarkets.length,
+            totalDeposits: aaveDirectMarkets.reduce((sum, m) => sum + (Number(m.totalDepositBalanceUSD) || 0), 0),
+            totalBorrows: aaveDirectMarkets.reduce((sum, m) => sum + (Number(m.totalBorrowBalanceUSD) || 0), 0)
           },
           morpho_combined: {
-            totalTVL: morphoData?.totalCollateralTVL || 0,
-            totalSupplyTVL: morphoData?.totalSupplyTVL || 0,
-            markets: morphoData?.marketCount || 0,
-            breakdown: {
-              loanMarkets: morphoData?.markets?.loanMarkets?.length || 0,
-              collateralMarkets: morphoData?.markets?.collateralMarkets?.length || 0
-            }
+            totalTVL: morphoDirectTVL + morphoPTTVL,
+            directTVL: morphoDirectTVL,
+            ptTVL: morphoPTTVL,
+            directMarkets: morphoData.reduce((sum, d) => sum + (d?.marketCount || 0), 0),
+            ptMarkets: morphoPTData.reduce((sum, d) => sum + (d?.marketCount || 0), 0),
+            totalSupplyTVL: morphoData.reduce((sum, d) => sum + (d?.totalSupplyTVL || 0), 0)
           },
           euler: {
-            totalTVL: eulerMarkets.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-            markets: eulerMarkets.length
+            totalTVL: eulerDirectTVL + eulerPTTVL,
+            directTVL: eulerDirectTVL,
+            ptTVL: eulerPTTVL,
+            directMarkets: eulerDirectMarkets.length,
+            ptMarkets: eulerPTMarkets.length
+          },
+          fluid: {
+            totalTVL: fluidDirectTVL + fluidPTTVL,
+            directTVL: fluidDirectTVL,
+            ptTVL: fluidPTTVL,
+            directMarkets: allTokenAddresses.length,
+            ptMarkets: ptAddresses.length
           }
+        },
+        pendle: {
+          ptTokensFound: ptAddresses.length,
+          ptDetails: pendlePTData.ptDetails || [],
+          marketsMatched: pendlePTData.marketCount || 0
         },
         totalLendingTVL: 0,
         lastUpdated: new Date().toISOString()
       };
       
-      // Calculate total TVL (for competitor markets, we use collateral TVL)
+      // Calculate total TVL (direct + PT for all protocols)
       data.totalLendingTVL = 
         (data.protocols.aave_v3.totalTVL || 0) +
         (data.protocols.morpho_combined.totalTVL || 0) +
-        (data.protocols.euler.totalTVL || 0);
+        (data.protocols.euler.totalTVL || 0) +
+        (data.protocols.fluid.totalTVL || 0);
+      
+      logger.info(`Total lending TVL for ${tokenAddress}:`, {
+        total: data.totalLendingTVL,
+        aave: data.protocols.aave_v3.totalTVL,
+        morpho: data.protocols.morpho_combined.totalTVL,
+        euler: data.protocols.euler.totalTVL,
+        fluid: data.protocols.fluid.totalTVL,
+        ptTokensFound: ptAddresses.length
+      });
+      
       await cacheManager.set(cacheKey, data, 900); // 15 minutes
     }
     
