@@ -199,6 +199,8 @@ export function useStablecoinStakedSupplyFromCoinGecko(stakedCoingeckoIds, optio
   });
 }
 
+
+
 // ================= LENDING MARKET METRICS =================
 
 /**
@@ -277,6 +279,7 @@ export function useMorphoCollateralUsage(contractAddress, options = {}) {
 
 /**
  * Hook to fetch Euler collateral usage for a stablecoin
+ * Updated for Euler V2 subgraph - fetches vault creation data and calculates TVL
  */
 export function useEulerCollateralUsage(contractAddress, options = {}) {
   return useQuery({
@@ -291,7 +294,8 @@ export function useEulerCollateralUsage(contractAddress, options = {}) {
           totalSupply: response.data?.totalSupply || 0,
           totalBorrows: response.data?.totalBorrows || 0,
           markets: response.data?.markets || [],
-          source: 'euler_subgraph'
+          vaultCount: response.data?.vaultCount || 0,
+          source: 'euler_v2_subgraph'
         };
       } catch (error) {
         console.warn('Euler data unavailable:', error);
@@ -333,22 +337,56 @@ export function useFluidCollateralUsage(contractAddress, options = {}) {
 
 /**
  * Hook to fetch combined lending market usage using individual protocol endpoints
+ * Now supports multiple contract addresses (including staked tokens)
  */
-export function useTotalLendingMarketUsage(contractAddress, options = {}) {
-  // Fetch each protocol individually to avoid the combined endpoint issues
-  const aaveData = useAaveCollateralUsage(contractAddress, options);
-  const morphoData = useMorphoCollateralUsage(contractAddress, options);
-  const eulerData = useEulerCollateralUsage(contractAddress, options);
-  const fluidData = useFluidCollateralUsage(contractAddress, options);
+export function useTotalLendingMarketUsage(contractAddresses, options = {}) {
+  // Convert contractAddresses to array of addresses for querying
+  const addressesToQuery = useMemo(() => {
+    if (!contractAddresses) return [];
+    if (typeof contractAddresses === 'string') return [contractAddresses];
+    if (Array.isArray(contractAddresses)) return contractAddresses;
+    if (typeof contractAddresses === 'object' && contractAddresses !== null) {
+      const addresses = Object.values(contractAddresses).filter(addr => addr && typeof addr === 'string');
+      console.log(`🔍 useTotalLendingMarketUsage - Addresses to query:`, {
+        contractAddresses: contractAddresses,
+        extractedAddresses: addresses,
+        count: addresses.length
+      });
+      return addresses;
+    }
+    return [];
+  }, [contractAddresses]);
+
+  // Create queries for each address and each protocol
+  const aaveQueries = addressesToQuery.map(address => 
+    useAaveCollateralUsage(address, options)
+  );
+  const morphoQueries = addressesToQuery.map(address => 
+    useMorphoCollateralUsage(address, options)
+  );
+  const eulerQueries = addressesToQuery.map((address, index) => {
+    console.log(`🔍 Creating Euler query ${index + 1}/${addressesToQuery.length} for address: ${address}`);
+    return useEulerCollateralUsage(address, options);
+  });
+  const fluidQueries = addressesToQuery.map(address => 
+    useFluidCollateralUsage(address, options)
+  );
   
   return useMemo(() => {
-    const aaveTVL = aaveData.data?.data || 0;
-    const morphoTVL = morphoData.data?.data || 0;
-    const eulerTVL = eulerData.data?.data || 0;
-    const fluidTVL = fluidData.data?.data || 0;
+    // Aggregate results from all queries with safety checks
+    const safeAaveQueries = Array.isArray(aaveQueries) ? aaveQueries : [];
+    const safeMorphoQueries = Array.isArray(morphoQueries) ? morphoQueries : [];
+    const safeEulerQueries = Array.isArray(eulerQueries) ? eulerQueries : [];
+    const safeFluidQueries = Array.isArray(fluidQueries) ? fluidQueries : [];
+    
+    const aaveTVL = safeAaveQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
+    const morphoTVL = safeMorphoQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
+    const eulerTVL = safeEulerQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
+    const fluidTVL = safeFluidQueries.reduce((sum, query) => sum + (query?.data?.data || 0), 0);
     const total = aaveTVL + morphoTVL + eulerTVL + fluidTVL;
     
-    const isLoading = aaveData.isLoading || morphoData.isLoading || eulerData.isLoading || fluidData.isLoading;
+    const allQueries = [...safeAaveQueries, ...safeMorphoQueries, ...safeEulerQueries, ...safeFluidQueries];
+    const isLoading = allQueries.some(query => query?.isLoading);
     
     return {
       data: {
@@ -361,9 +399,9 @@ export function useTotalLendingMarketUsage(contractAddress, options = {}) {
         }
       },
       isLoading,
-      source: 'individual_protocol_endpoints'
+      source: 'individual_protocol_endpoints_multi_address'
     };
-  }, [aaveData, morphoData, eulerData, fluidData]);
+  }, [aaveQueries, morphoQueries, eulerQueries, fluidQueries]);
 }
 
 // ================= SAFETY BUFFER METRICS =================
@@ -826,66 +864,83 @@ export function useStablecoinCompleteMetrics(stablecoin, options = {}) {
   );
   
   // Lending markets - Group 3 (staggered loading)
-  // Combine regular contract addresses and staked contract addresses for lending queries
-  const allContractAddresses = {
+  // Create base addresses (always available)
+  const baseContractAddresses = useMemo(() => ({
     ...contractAddresses,
     ...(stablecoin.stakedContractAddresses || {})
-  };
+  }), [contractAddresses, stablecoin.stakedContractAddresses]);
+  
+  
+  // Combine all addresses for the final query
+  const allContractAddresses = useMemo(() => ({
+    ...baseContractAddresses
+  }), [baseContractAddresses]);
   
   // Debug logging to see what contracts are being queried
   useEffect(() => {
-    if (enableLending && Object.keys(allContractAddresses).length > 0) {
-      console.log(`[${stablecoin.symbol}] Lending contracts being queried:`, allContractAddresses);
+    if (enableLending) {
+      const regularCount = Object.keys(contractAddresses).length;
+      const stakedCount = Object.keys(stablecoin.stakedContractAddresses || {}).length;
+      const totalAddresses = Object.keys(allContractAddresses || {}).length;
+      
+      console.log(`[${stablecoin.symbol}] Lending contracts being queried:`, {
+        regular: regularCount,
+        staked: stakedCount,
+        total: totalAddresses,
+        addresses: allContractAddresses
+      });
+      
     }
-  }, [enableLending, allContractAddresses, stablecoin.symbol]);
+  }, [enableLending, allContractAddresses, stablecoin.symbol, contractAddresses, stablecoin.stakedContractAddresses]);
   
-  const lendingQueries = Object.entries(allContractAddresses).map(([tokenKey, contractAddress]) => ({
-    tokenKey,
-    contractAddress,
-    query: useTotalLendingMarketUsage(contractAddress, {
-      ...options,
-      enabled: enableLending && contractAddress && contractAddress !== "0x0000000000000000000000000000000000000000" && (options.enabled !== false)
-    })
-  }));
+  // Start lending queries immediately with available addresses
+  const totalLendingQuery = useTotalLendingMarketUsage(allContractAddresses, {
+    ...options,
+    enabled: enableLending && Object.keys(allContractAddresses).length > 0 && (options.enabled !== false)
+  });
   
   const totalLendingUsage = useMemo(() => {
-    const total = lendingQueries.reduce((sum, { query }) => {
-      return sum + (query.data?.totalLendingTVL || 0);
-    }, 0);
-    
-    const isLoading = lendingQueries.some(({ query }) => query.isLoading);
-    
-    // Combine protocol breakdown data from all queries
-    const combinedProtocols = lendingQueries.reduce((acc, { tokenKey, query }) => {
-      if (query.data?.protocols) {
-        Object.entries(query.data.protocols).forEach(([protocol, data]) => {
-          if (!acc[protocol]) acc[protocol] = { totalTVL: 0 };
-          acc[protocol].totalTVL += data.totalTVL || 0;
-        });
-      }
-      return acc;
-    }, {});
+    // Ensure we have valid data structure even if query fails
+    const queryData = totalLendingQuery.data || {};
+    const total = queryData.totalLendingTVL || 0;
+    const isLoading = totalLendingQuery.isLoading;
+    const protocols = queryData.protocols || {
+      aave_v3: { totalTVL: 0 },
+      morpho_combined: { totalTVL: 0 },
+      euler: { totalTVL: 0 },
+      fluid: { totalTVL: 0 }
+    };
     
     // Debug logging for lending usage
-    if (!isLoading && lendingQueries.length > 0) {
-      const queryResults = lendingQueries.map(({ tokenKey, contractAddress, query }) => ({
-        tokenKey,
-        contractAddress: contractAddress.slice(0, 8) + '...',
-        totalTVL: query.data?.totalLendingTVL || 0,
-        morpho: query.data?.protocols?.morpho_combined?.totalTVL || 0
-      }));
-      console.log(`[${stablecoin.symbol}] Lending query results:`, queryResults);
-      console.log(`[${stablecoin.symbol}] Combined protocols:`, combinedProtocols);
+    if (!isLoading && Object.keys(allContractAddresses).length > 0) {
+      const regularCount = Object.keys(contractAddresses).length;
+      const stakedCount = Object.keys(stablecoin.stakedContractAddresses || {}).length;
+      
+      console.log(`[${stablecoin.symbol}] Lending query results (combined):`, {
+        totalTVL: total,
+        addressCounts: { regular: regularCount, staked: stakedCount },
+        protocols: Object.entries(protocols).map(([name, data]) => `${name}: $${(data?.totalTVL || 0).toLocaleString()}`).join(', '),
+        queryError: totalLendingQuery.error ? totalLendingQuery.error.message : null
+      });
     }
+    
+    // Additional safety check for data structure
+    const safeProtocols = {
+      aave_v3: { totalTVL: protocols?.aave_v3?.totalTVL || 0 },
+      morpho_combined: { totalTVL: protocols?.morpho_combined?.totalTVL || 0 },
+      euler: { totalTVL: protocols?.euler?.totalTVL || 0 },
+      fluid: { totalTVL: protocols?.fluid?.totalTVL || 0 }
+    };
     
     return {
       data: {
         totalLendingTVL: total,
-        protocols: combinedProtocols
+        protocols: safeProtocols
       },
-      isLoading
+      isLoading,
+      error: totalLendingQuery.error
     };
-  }, [lendingQueries, stablecoin.symbol]);
+  }, [totalLendingQuery, allContractAddresses, stablecoin.symbol, contractAddresses, stablecoin.stakedContractAddresses]);
   
   // Safety metrics - Group 4 (staggered loading)
   const insuranceFundFromBalances = useStablecoinInsuranceFundFromBalances(

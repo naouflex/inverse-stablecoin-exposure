@@ -107,19 +107,20 @@ export class StablecoinFetcher {
     return safeExternalFetch(
       cacheKey,
       async () => {
-        // Placeholder for Euler API integration
-        this.logger.info(`Fetching Euler collateral usage for ${tokenAddress}`);
+        this.logger.info(`Fetching Euler V2 collateral usage for ${tokenAddress}`);
         
-        // Mock data - replace with actual Euler API call
-        const mockData = {
+        // This method is deprecated - use /api/lending/euler/:tokenAddress endpoint instead
+        // which uses theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress })
+        const placeholderData = {
           collateralAmount: 0,
           utilizationRate: 0,
           borrowRate: 0,
           supplyRate: 0,
+          note: "Use /api/lending/euler/:tokenAddress for Euler V2 data",
           lastUpdated: new Date().toISOString()
         };
         
-        return { data: mockData };
+        return { data: placeholderData };
       },
       this.requestQueue,
       30000

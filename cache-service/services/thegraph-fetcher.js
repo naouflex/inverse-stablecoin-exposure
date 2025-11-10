@@ -603,19 +603,14 @@ export class TheGraphFetcher {
     
     switch (protocol) {
       case 'euler':
+        // New Euler V2 subgraph schema - find vaults by asset
         return `{
-          markets(where: { inputToken_: { id: "${address}" } }) {
+          evaultCreateds(where: { asset: "${address}" }) {
             id
-            name
-            inputToken {
-              id
-              symbol
-              name
-            }
-            totalValueLockedUSD
-            totalDepositBalanceUSD
-            totalBorrowBalanceUSD
-            isActive
+            asset
+            dToken
+            creator
+            blockTimestamp
           }
         }`;
       
@@ -636,28 +631,6 @@ export class TheGraphFetcher {
    */
   clearQueue() {
     this.requestQueue.clear();
-  }
-
-  /**
-   * Health check method
-   */
-  async healthCheck() {
-    try {
-      const status = this.getQueueStatus();
-      const isHealthy = status.circuitState === 'CLOSED' && status.failureCount < 5;
-      
-      return {
-        healthy: isHealthy,
-        status: status,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      return {
-        healthy: false,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      };
-    }
   }
 
   /**

@@ -473,6 +473,141 @@ export class EthereumFetcher {
   }
 
   /**
+   * Get eVault address from dToken contract (Euler V2)
+   * @param {string} dTokenAddress - dToken contract address
+   * @returns {Promise<string>} - eVault address
+   */
+  async getEVaultFromDToken(dTokenAddress) {
+    // Euler dToken contracts have an eVault() function that returns the eVault address
+    // Function signature for eVault(): 0x985426ec
+    const data = '0x985426ec';
+    
+    try {
+      const result = await this.makeRpcCall('eth_call', [
+        {
+          to: dTokenAddress,
+          data: data
+        },
+        'latest'
+      ]);
+      
+      // Result is a 32-byte hex string, extract the address (last 20 bytes)
+      const eVaultAddress = '0x' + result.slice(-40);
+      return eVaultAddress;
+    } catch (error) {
+      console.error(`Error getting eVault address from dToken ${dTokenAddress}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get total assets from eVault contract (Euler V2)
+   * @param {string} eVaultAddress - eVault contract address
+   * @returns {Promise<string>} - Total assets in wei
+   */
+  async getTotalAssetsFromEVault(eVaultAddress) {
+    // Euler eVault contracts have a totalAssets() function that returns the total assets
+    // Function signature for totalAssets(): 0x01e1d114
+    const data = '0x01e1d114';
+    
+    try {
+      const result = await this.makeRpcCall('eth_call', [
+        {
+          to: eVaultAddress,
+          data: data
+        },
+        'latest'
+      ]);
+      
+      return result; // Returns total assets in wei
+    } catch (error) {
+      console.error(`Error getting total assets from eVault ${eVaultAddress}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get total borrows from eVault contract (Euler V2)
+   * @param {string} eVaultAddress - eVault contract address
+   * @returns {Promise<string>} - Total borrows in wei
+   */
+  async getTotalBorrowsFromEVault(eVaultAddress) {
+    // Euler eVault contracts have a totalBorrows() function
+    // Function signature for totalBorrows(): 0x47bd3718
+    const data = '0x47bd3718';
+    
+    try {
+      const result = await this.makeRpcCall('eth_call', [
+        {
+          to: eVaultAddress,
+          data: data
+        },
+        'latest'
+      ]);
+      
+      return result; // Returns total borrows in wei
+    } catch (error) {
+      console.error(`Error getting total borrows from eVault ${eVaultAddress}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get complete Euler vault data using on-chain calls
+   * @param {string} dTokenAddress - dToken contract address
+   * @returns {Promise<object>} - Vault data with cash and borrows
+   */
+  async getEulerVaultData(dTokenAddress) {
+    try {
+      // Step 1: Get eVault address from dToken
+      const eVaultAddress = await this.getEVaultFromDToken(dTokenAddress);
+      
+      // Step 2: Get total assets and borrows from eVault
+      const [totalAssetsHex, borrowsHex] = await Promise.all([
+        this.getTotalAssetsFromEVault(eVaultAddress),
+        this.getTotalBorrowsFromEVault(eVaultAddress)
+      ]);
+      
+      // Step 3: Convert to decimal values
+      const totalAssets = parseInt(totalAssetsHex, 16);
+      const totalBorrows = parseInt(borrowsHex, 16);
+      
+      // Step 4: Convert to USD (assuming 18 decimals for stablecoins)
+      const decimals = 18;
+      const totalAssetsUSD = totalAssets / Math.pow(10, decimals);
+      const borrowsUSD = totalBorrows / Math.pow(10, decimals);
+      // For lending protocols, TVL is typically the total assets (deposits)
+      const tvlUSD = totalAssetsUSD;
+      
+      return {
+        dTokenAddress,
+        eVaultAddress,
+        totalAssets: totalAssets.toString(),
+        totalBorrows: totalBorrows.toString(),
+        totalAssetsUSD,
+        borrowsUSD,
+        tvlUSD,
+        hasActivity: tvlUSD > 0,
+        fetched_at: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error(`Error getting Euler vault data for dToken ${dTokenAddress}:`, error.message);
+      return {
+        dTokenAddress,
+        eVaultAddress: null,
+        totalAssets: '0',
+        totalBorrows: '0',
+        totalAssetsUSD: 0,
+        borrowsUSD: 0,
+        tvlUSD: 0,
+        hasActivity: false,
+        error: error.message,
+        fetched_at: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
    * Get exchange rate from Curve pool using get_dy function
    * @param {string} poolAddress - Curve pool address
    * @param {number} i - Index of input token

@@ -2267,7 +2267,7 @@ app.get('/api/lending/morpho/:tokenAddress', async (req, res) => {
   }
 });
 
-// Euler market data
+// Euler market data - Updated for Euler V2 subgraph
 app.get('/api/lending/euler/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
@@ -2275,17 +2275,80 @@ app.get('/api/lending/euler/:tokenAddress', async (req, res) => {
     
     let data = await cacheManager.get(cacheKey);
     if (!data) {
+      // Step 1: Get vault creation data for the token
       const graphData = await theGraphFetcher.fetchData('euler', 'lending_markets', { tokenAddress });
-      const marketData = graphData?.data?.markets || [];
+      const vaultCreations = graphData?.data?.evaultCreateds || [];
+      
+      let totalTVL = 0;
+      let totalSupply = 0;
+      let totalBorrows = 0;
+      const markets = [];
+      
+      if (vaultCreations.length > 0) {
+        logger.info(`Found ${vaultCreations.length} USR vaults, fetching cash balances directly from contracts`);
+        
+        // Step 2: Get cash balances directly from dToken contracts on-chain (more reliable than subgraph matching)
+        for (const vault of vaultCreations) {
+          let vaultTVL = 0;
+          let vaultSupply = 0;
+          let vaultBorrows = 0;
+          let hasActivity = false;
+          
+          try {
+            // Get vault data directly from blockchain using our new on-chain method
+            const vaultData = await ethereumFetcher.getEulerVaultData(vault.dToken);
+            
+            if (vaultData && !vaultData.error) {
+              vaultSupply = vaultData.totalAssetsUSD;  // Total assets (deposits)
+              vaultBorrows = vaultData.borrowsUSD;     // Total borrows
+              vaultTVL = vaultData.tvlUSD;             // TVL = total assets for lending
+              hasActivity = vaultData.hasActivity;
+              
+              logger.info(`Euler vault ${vault.dToken.slice(0, 8)}: eVault=${vaultData.eVaultAddress}, TotalAssets=${vaultSupply.toFixed(6)}, Borrows=${vaultBorrows.toFixed(6)}, TVL=${vaultTVL.toFixed(6)} USD`);
+            } else {
+              logger.warn(`Could not fetch on-chain data for vault ${vault.dToken.slice(0, 8)}: ${vaultData?.error || 'Unknown error'}`);
+            }
+          } catch (vaultError) {
+            logger.warn(`Error fetching on-chain data for vault ${vault.dToken}:`, vaultError.message);
+          }
+          
+          const market = {
+            id: vault.id,
+            name: `Euler Vault ${vault.dToken.slice(0, 8)}...`,
+            asset: vault.asset,
+            dToken: vault.dToken,
+            creator: vault.creator,
+            createdAt: vault.blockTimestamp,
+            totalValueLockedUSD: vaultTVL,
+            totalDepositBalanceUSD: vaultSupply,
+            totalBorrowBalanceUSD: vaultBorrows,
+            isActive: true,
+            decimals: 18,
+            hasActivity,
+            statusFound: hasActivity
+          };
+          
+          markets.push(market);
+          totalTVL += market.totalValueLockedUSD;
+          totalSupply += market.totalDepositBalanceUSD;
+          totalBorrows += market.totalBorrowBalanceUSD;
+        }
+      }
+      
       data = {
         protocol: 'euler',
         tokenAddress,
-        markets: marketData,
-        totalTVL: marketData.reduce((sum, market) => sum + (Number(market.totalValueLockedUSD) || 0), 0),
-        totalSupply: marketData.reduce((sum, market) => sum + (Number(market.totalSupply) || 0), 0),
-        totalBorrows: marketData.reduce((sum, market) => sum + (Number(market.totalBorrows) || 0), 0),
+        markets,
+        totalTVL,
+        totalSupply,
+        totalBorrows,
+        vaultCount: vaultCreations.length,
+        activeVaults: markets.filter(m => m.hasActivity).length,
+        inactiveVaults: markets.filter(m => !m.hasActivity).length,
+        note: vaultCreations.length > 0 && totalTVL === 0 ? 'Vaults exist but have no deposits yet' : null,
         fetched_at: new Date().toISOString()
       };
+      
       await cacheManager.set(cacheKey, data, 900); // 15 minutes
     }
     
