@@ -715,15 +715,20 @@ export class TheGraphFetcher {
       const tokens = pool.tokens || [];
       
       for (const token of tokens) {
+        // IMPORTANT: Balancer V3 returns balances ALREADY FORMATTED (not in wei)
+        // So we use the balance directly without dividing by decimals
         const balance = Number(token.balance || 0);
-        const decimals = Number(token.decimals || 18);
         const address = token.address?.toLowerCase();
         
         if (balance > 0 && address) {
           try {
             const price = await priceGetter(address);
-            const amount = balance / Math.pow(10, decimals);
-            poolTVL += amount * (price || 0);
+            const tokenValue = balance * (price || 0);
+            poolTVL += tokenValue;
+            
+            if (tokenValue > 1000) { // Log significant values
+              console.log(`  ${token.symbol}: ${balance.toFixed(2)} × $${price.toFixed(4)} = $${tokenValue.toFixed(2)}`);
+            }
           } catch (error) {
             console.warn(`Error getting price for ${address}:`, error.message);
           }
@@ -734,6 +739,7 @@ export class TheGraphFetcher {
       console.log(`Balancer V3 pool ${pool.name}: $${poolTVL.toFixed(2)} TVL`);
     }
 
+    console.log(`Balancer V3 total TVL: $${totalTVL.toFixed(2)}`);
     return totalTVL;
   }
 

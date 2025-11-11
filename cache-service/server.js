@@ -1672,26 +1672,48 @@ app.get('/api/balancer/v2/filtered-tvl/:tokenAddress', async (req, res) => {
   }
 });
 
-// fetchBalancerV3FilteredTVL -> /api/balancer/v3/filtered-tvl/:tokenAddress
+// fetchBalancerV3FilteredTVL -> /api/balancer/v3/filtered-tvl/:tokenAddress (with Pendle PT)
 app.get('/api/balancer/v3/filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `balancer:v3:filtered-tvl:${tokenAddress}`;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
+    
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `balancer:v3:filtered-tvl-pt:${allTokenAddresses.sort().join('-')}`;
     
     let tvl = await cacheManager.get(cacheKey);
     if (tvl === null || tvl === undefined) {
-      logger.info(`[Balancer V3 Filtered] Starting for ${tokenAddress}`);
+      logger.info(`[Balancer V3 Filtered] Starting for ${allTokenAddresses.length} addresses`);
       
-      // Fetch filtered poolTokens (excludes same-protocol pairs)
-      const filteredPoolTokens = await theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', tokenAddress);
+      // Get Pendle PT tokens
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
       
-      logger.info(`[Balancer V3 Filtered] Got ${Array.isArray(filteredPoolTokens) ? filteredPoolTokens.length : 'non-array'} filtered pool tokens`);
+      logger.info(`[Balancer V3 Filtered] Found ${ptAddresses.length} PT tokens`);
       
-      // Calculate TVL from the filtered poolTokens
-      if (Array.isArray(filteredPoolTokens) && filteredPoolTokens.length > 0) {
-        logger.info(`[Balancer V3 Filtered] Calculating TVL from ${filteredPoolTokens.length} pool tokens...`);
+      // Fetch filtered poolTokens for base tokens
+      const basePoolTokens = await Promise.all(
+        allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', addr))
+      );
+      
+      // Fetch filtered poolTokens for PT tokens
+      const ptPoolTokens = await Promise.all(
+        ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', addr))
+      );
+      
+      // Combine all poolTokens
+      const allPoolTokens = [...basePoolTokens.flat(), ...ptPoolTokens.flat()];
+      
+      logger.info(`[Balancer V3 Filtered] Got ${allPoolTokens.length} total pool tokens (${basePoolTokens.flat().length} base + ${ptPoolTokens.flat().length} PT)`);
+      
+      // Calculate TVL from the poolTokens
+      if (allPoolTokens.length > 0) {
+        logger.info(`[Balancer V3 Filtered] Calculating TVL from ${allPoolTokens.length} pool tokens...`);
         
-        tvl = await theGraphFetcher.calculateBalancerV3TVL(filteredPoolTokens, async (tokenAddr) => {
+        tvl = await theGraphFetcher.calculateBalancerV3TVL(allPoolTokens, async (tokenAddr) => {
           const priceData = await defiLlamaFetcher.fetchTokenPrice(tokenAddr, 'ethereum');
           const price = priceData?.price || 0;
           if (price > 0) {
@@ -1700,19 +1722,15 @@ app.get('/api/balancer/v3/filtered-tvl/:tokenAddress', async (req, res) => {
           return price;
         });
         
-        logger.info(`[Balancer V3 Filtered] Calculated TVL for ${tokenAddress}: $${tvl.toFixed(2)}`);
-      } else if (Array.isArray(filteredPoolTokens)) {
-        logger.info(`[Balancer V3 Filtered] No pool tokens found after filtering`);
-        tvl = 0;
+        logger.info(`[Balancer V3 Filtered] Calculated TVL: $${tvl.toFixed(2)}`);
       } else {
-        // If it's already a number (shouldn't happen but safeguard)
-        tvl = Number(filteredPoolTokens) || 0;
-        logger.info(`[Balancer V3 Filtered] Got number directly: ${tvl}`);
+        logger.info(`[Balancer V3 Filtered] No pool tokens found`);
+        tvl = 0;
       }
       
       await cacheManager.set(cacheKey, tvl, 600); // 10 minutes cache
     } else {
-      logger.info(`[Balancer V3 Filtered] Cache hit for ${tokenAddress}: $${tvl}`);
+      logger.info(`[Balancer V3 Filtered] Cache hit: $${tvl}`);
     }
     
     res.json({ data: tvl });
@@ -1723,7 +1741,7 @@ app.get('/api/balancer/v3/filtered-tvl/:tokenAddress', async (req, res) => {
 });
 
 // Legacy filtered endpoint (V2 only for backward compatibility)
-app.get('/api/balancer/filtered-tvl/:tokenAddress', async (req, res) => {
+app.get('/api/F/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
     const cacheKey = `balancer:filtered-tvl:${tokenAddress}`;
@@ -1741,35 +1759,63 @@ app.get('/api/balancer/filtered-tvl/:tokenAddress', async (req, res) => {
   }
 });
 
-// Combined filtered TVL (V2 + V3)
+// Combined filtered TVL (V2 + V3) with Pendle PT support
 app.get('/api/balancer/total-filtered-tvl/:tokenAddress', async (req, res) => {
   try {
     const { tokenAddress } = req.params;
-    const cacheKey = `balancer:total-filtered-tvl:${tokenAddress}`;
+    const additionalAddresses = req.query.additionalAddresses 
+      ? req.query.additionalAddresses.split(',').map(addr => addr.trim())
+      : [];
+    
+    const allTokenAddresses = [tokenAddress, ...additionalAddresses];
+    const cacheKey = `balancer:total-filtered-tvl-pt:${allTokenAddresses.sort().join('-')}`;
     
     let totalTVL = await cacheManager.get(cacheKey);
     if (totalTVL === null || totalTVL === undefined) {
-      // Fetch V2 filtered TVL (returns number)
-      const v2TVL = await theGraphFetcher.fetchFilteredTokenTVL('balancer', tokenAddress);
+      logger.info(`[Balancer Total Filtered] Fetching for ${allTokenAddresses.length} addresses with Pendle PT`);
       
-      // Fetch V3 filtered poolTokens (returns array)
-      const v3FilteredPoolTokens = await theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', tokenAddress);
+      // Get Pendle PT tokens
+      const allMarkets = await cacheManager.get('pendle:all-markets') || await pendleFetcher.fetchAllMarkets();
+      const pendlePTData = pendleFetcher.getPTTokensForStablecoin(allTokenAddresses, allMarkets);
+      const ptAddresses = pendlePTData.ptAddresses || [];
       
-      // Calculate V3 TVL from poolTokens
+      logger.info(`[Balancer Total Filtered] Found ${ptAddresses.length} PT tokens`);
+      
+      // Fetch V2 TVL for base + PT tokens
+      const [v2BaseTokensTVL, v2PTTokensTVL] = await Promise.all([
+        Promise.all(allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer', addr))),
+        Promise.all(ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer', addr)))
+      ]);
+      
+      const v2DirectTVL = v2BaseTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      const v2PTTVL = v2PTTokensTVL.reduce((sum, tvl) => sum + tvl, 0);
+      const v2TVL = v2DirectTVL + v2PTTVL;
+      
+      // Fetch V3 filtered poolTokens for base tokens
+      const v3FilteredPoolTokensBase = await Promise.all(
+        allTokenAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', addr))
+      );
+      
+      // Fetch V3 filtered poolTokens for PT tokens
+      const v3FilteredPoolTokensPT = await Promise.all(
+        ptAddresses.map(addr => theGraphFetcher.fetchFilteredTokenTVL('balancer_v3', addr))
+      );
+      
+      // Calculate V3 TVL from poolTokens (both base and PT)
+      const allV3PoolTokens = [...v3FilteredPoolTokensBase.flat(), ...v3FilteredPoolTokensPT.flat()];
+      
       let v3TVL = 0;
-      if (Array.isArray(v3FilteredPoolTokens)) {
-        v3TVL = await theGraphFetcher.calculateBalancerV3TVL(v3FilteredPoolTokens, async (tokenAddr) => {
+      if (allV3PoolTokens.length > 0) {
+        v3TVL = await theGraphFetcher.calculateBalancerV3TVL(allV3PoolTokens, async (tokenAddr) => {
           const priceData = await defiLlamaFetcher.fetchTokenPrice(tokenAddr, 'ethereum');
           return priceData?.price || 0;
         });
-      } else {
-        v3TVL = Number(v3FilteredPoolTokens) || 0;
       }
       
       totalTVL = v2TVL + v3TVL;
       await cacheManager.set(cacheKey, totalTVL, 600); // 10 minutes cache
       
-      logger.info(`Balancer total filtered TVL for ${tokenAddress}: V2=$${v2TVL.toFixed(2)}, V3=$${v3TVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
+      logger.info(`[Balancer Total Filtered] V2=$${v2TVL.toFixed(2)} (Direct:$${v2DirectTVL.toFixed(2)}, PT:$${v2PTTVL.toFixed(2)}), V3=$${v3TVL.toFixed(2)}, Total=$${totalTVL.toFixed(2)}`);
     }
     
     res.json({ data: totalTVL });
@@ -3170,6 +3216,167 @@ app.delete('/api/manual-data/:symbol/:metric', requireOperator, async (req, res)
   } catch (error) {
     logger.error('Error deleting manual data:', error);
     res.status(500).json({ error: 'Failed to delete manual data' });
+  }
+});
+
+// POST /api/manual-data/load-defaults - Operator endpoint to load defaults from config file
+// This will load default values from manualDefaults.js for any stablecoin/metric that doesn't already have manual data
+app.post('/api/manual-data/load-defaults', requireOperator, async (req, res) => {
+  try {
+    let manualDefaults;
+    
+    // Try to import the manual defaults config file
+    try {
+      const defaultsModule = await import('./config/manualDefaults.js');
+      manualDefaults = defaultsModule.manualDefaults;
+      
+      // Validate the defaults
+      const validation = defaultsModule.validateDefaults(manualDefaults);
+      if (!validation.isValid) {
+        return res.status(400).json({
+          error: 'Invalid defaults configuration',
+          validationErrors: validation.errors
+        });
+      }
+    } catch (error) {
+      logger.warn('Could not load manualDefaults.js, no defaults available:', error.message);
+      return res.status(404).json({
+        error: 'Manual defaults config file not found or has errors',
+        message: 'Please create src/config/manualDefaults.js with default values'
+      });
+    }
+    
+    const results = {
+      loaded: [],
+      skipped: [],
+      errors: []
+    };
+    
+    const allowedMetrics = ['bridgeSupply', 'collateralizationRatio'];
+    
+    // Process each stablecoin in the defaults
+    for (const [symbol, metrics] of Object.entries(manualDefaults)) {
+      for (const metric of allowedMetrics) {
+        if (metrics[metric] !== undefined) {
+          const key = `manual:${symbol.toLowerCase()}:${metric}`;
+          
+          // Check if manual data already exists
+          const existing = await redis.get(key);
+          
+          if (existing) {
+            // Skip if manual entry already exists
+            results.skipped.push({
+              symbol,
+              metric,
+              reason: 'Manual entry already exists'
+            });
+          } else {
+            // Load the default value
+            try {
+              const data = {
+                value: metrics[metric],
+                lastUpdated: new Date().toISOString(),
+                updatedBy: 'defaults-config',
+                notes: 'Loaded from manualDefaults.js',
+                isDefault: true
+              };
+              
+              await redis.set(key, JSON.stringify(data));
+              
+              results.loaded.push({
+                symbol,
+                metric,
+                value: metrics[metric]
+              });
+              
+              logger.info(`Loaded default for ${symbol}.${metric} = ${metrics[metric]}`);
+            } catch (error) {
+              results.errors.push({
+                symbol,
+                metric,
+                error: error.message
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Defaults loading completed',
+      results: {
+        loaded: results.loaded.length,
+        skipped: results.skipped.length,
+        errors: results.errors.length,
+        details: results
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error loading default manual data:', error);
+    res.status(500).json({ error: 'Failed to load defaults' });
+  }
+});
+
+// GET /api/manual-data/defaults-status - Public endpoint to check which defaults are configured
+app.get('/api/manual-data/defaults-status', async (req, res) => {
+  try {
+    let manualDefaults;
+    
+    // Try to import the manual defaults config file
+    try {
+      const defaultsModule = await import('./config/manualDefaults.js');
+      manualDefaults = defaultsModule.manualDefaults;
+    } catch (error) {
+      return res.json({
+        success: true,
+        configured: false,
+        message: 'No defaults config file found'
+      });
+    }
+    
+    const status = {};
+    
+    for (const [symbol, metrics] of Object.entries(manualDefaults)) {
+      status[symbol] = {};
+      
+      for (const metric of ['bridgeSupply', 'collateralizationRatio']) {
+        if (metrics[metric] !== undefined) {
+          const key = `manual:${symbol.toLowerCase()}:${metric}`;
+          const existing = await redis.get(key);
+          
+          if (existing) {
+            const parsed = JSON.parse(existing);
+            status[symbol][metric] = {
+              hasDefault: true,
+              defaultValue: metrics[metric],
+              currentValue: parsed.value,
+              isUsingDefault: parsed.isDefault === true,
+              source: parsed.isDefault ? 'default' : 'manual_entry'
+            };
+          } else {
+            status[symbol][metric] = {
+              hasDefault: true,
+              defaultValue: metrics[metric],
+              currentValue: null,
+              isUsingDefault: false,
+              source: 'not_loaded'
+            };
+          }
+        }
+      }
+    }
+    
+    res.json({
+      success: true,
+      configured: true,
+      status
+    });
+    
+  } catch (error) {
+    logger.error('Error checking defaults status:', error);
+    res.status(500).json({ error: 'Failed to check defaults status' });
   }
 });
 

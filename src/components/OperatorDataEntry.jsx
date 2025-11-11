@@ -42,6 +42,8 @@ export default function OperatorDataEntry({ isOpen, onClose, initialStablecoin =
   const [isLoading, setIsLoading] = useState(false);
   const [existingData, setExistingData] = useState({});
   const [focusedMetric, setFocusedMetric] = useState(null);
+  const [defaultsStatus, setDefaultsStatus] = useState(null);
+  const [loadingDefaults, setLoadingDefaults] = useState(false);
   
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -57,12 +59,33 @@ export default function OperatorDataEntry({ isOpen, onClose, initialStablecoin =
     }
   }, [isOpen, initialStablecoin, initialMetric]);
 
+  // Load defaults status when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      loadDefaultsStatus();
+    }
+  }, [isOpen]);
+
   // Load existing manual data when stablecoin is selected
   useEffect(() => {
     if (selectedStablecoin) {
       loadExistingData(selectedStablecoin.symbol);
     }
   }, [selectedStablecoin]);
+
+  const loadDefaultsStatus = async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/manual-data/defaults-status`);
+      if (response.data.success && response.data.configured) {
+        setDefaultsStatus(response.data.status);
+      } else {
+        setDefaultsStatus(null);
+      }
+    } catch (error) {
+      console.error('Error loading defaults status:', error);
+      setDefaultsStatus(null);
+    }
+  };
 
   const loadExistingData = async (symbol) => {
     try {
@@ -79,6 +102,68 @@ export default function OperatorDataEntry({ isOpen, onClose, initialStablecoin =
     } catch (error) {
       console.error('Error loading existing data:', error);
       setExistingData({});
+    }
+  };
+
+  const handleLoadDefaults = async () => {
+    if (!apiKey) {
+      toast({
+        title: 'API Key Required',
+        description: 'Please enter your operator API key to load defaults',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    try {
+      setLoadingDefaults(true);
+      
+      const response = await axios.post(
+        `${API_BASE}/manual-data/load-defaults`,
+        {},
+        {
+          headers: {
+            'x-operator-key': apiKey,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data.success) {
+        toast({
+          title: 'Defaults Loaded',
+          description: `Loaded ${response.data.results.loaded} defaults, skipped ${response.data.results.skipped} existing entries`,
+          status: 'success',
+          duration: 5000,
+          isClosable: true,
+        });
+        
+        // Invalidate React Query cache to refresh the table
+        queryClient.invalidateQueries({
+          predicate: (query) => 
+            query.queryKey[0] === 'stablecoin-bridge-supply' ||
+            query.queryKey[0] === 'stablecoin-cr'
+        });
+        
+        // Reload defaults status and existing data if a stablecoin is selected
+        await loadDefaultsStatus();
+        if (selectedStablecoin) {
+          await loadExistingData(selectedStablecoin.symbol);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading defaults:', error);
+      toast({
+        title: 'Error Loading Defaults',
+        description: error.response?.data?.message || error.response?.data?.error || 'Failed to load defaults',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingDefaults(false);
     }
   };
 
@@ -217,6 +302,41 @@ export default function OperatorDataEntry({ isOpen, onClose, initialStablecoin =
               </Text>
             </FormControl>
 
+            {/* Load Defaults Button */}
+            {defaultsStatus && Object.keys(defaultsStatus).length > 0 && (
+              <Box 
+                p={3} 
+                bg={useColorModeValue('green.50', 'green.900')}
+                borderRadius="md"
+                border="1px solid"
+                borderColor={useColorModeValue('green.200', 'green.700')}
+              >
+                <VStack align="stretch" spacing={2}>
+                  <HStack justify="space-between" align="center">
+                    <VStack align="start" spacing={0} flex="1">
+                      <Text fontWeight="bold" fontSize="sm">Default Values Available</Text>
+                      <Text fontSize="xs" color="gray.600">
+                        {Object.keys(defaultsStatus).length} stablecoin(s) configured in manualDefaults.js
+                      </Text>
+                    </VStack>
+                    <Button
+                      size="sm"
+                      colorScheme="green"
+                      onClick={handleLoadDefaults}
+                      isLoading={loadingDefaults}
+                      isDisabled={!apiKey}
+                    >
+                      Load Defaults
+                    </Button>
+                  </HStack>
+                  <Text fontSize="xs" color="gray.600">
+                    This will load default values for any stablecoin that doesn't have manual entries yet.
+                    Existing manual entries will not be overwritten.
+                  </Text>
+                </VStack>
+              </Box>
+            )}
+
             <Divider />
 
             {/* Stablecoin Selection */}
@@ -322,9 +442,13 @@ export default function OperatorDataEntry({ isOpen, onClose, initialStablecoin =
                         </Badge>
                       )}
                       {existingData.bridgeSupply && (
-                        <Badge colorScheme="green" fontSize="xs">
+                        <Badge 
+                          colorScheme={existingData.bridgeSupply.updatedBy === 'defaults-config' ? 'blue' : 'green'} 
+                          fontSize="xs"
+                        >
                           <CheckIcon mr={1} boxSize={2} />
-                          Last: ${existingData.bridgeSupply.value.toLocaleString()}
+                          {existingData.bridgeSupply.updatedBy === 'defaults-config' ? 'Default: ' : 'Last: '}
+                          ${existingData.bridgeSupply.value.toLocaleString()}
                         </Badge>
                       )}
                     </HStack>
@@ -356,9 +480,13 @@ export default function OperatorDataEntry({ isOpen, onClose, initialStablecoin =
                         </Badge>
                       )}
                       {existingData.collateralizationRatio && (
-                        <Badge colorScheme="green" fontSize="xs">
+                        <Badge 
+                          colorScheme={existingData.collateralizationRatio.updatedBy === 'defaults-config' ? 'blue' : 'green'} 
+                          fontSize="xs"
+                        >
                           <CheckIcon mr={1} boxSize={2} />
-                          Last: {existingData.collateralizationRatio.value}
+                          {existingData.collateralizationRatio.updatedBy === 'defaults-config' ? 'Default: ' : 'Last: '}
+                          {existingData.collateralizationRatio.value}
                         </Badge>
                       )}
                     </HStack>
