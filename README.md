@@ -10,30 +10,40 @@ This dashboard provides comprehensive stablecoin risk monitoring capabilities:
 
 - 📊 **Supply Metrics**: Total supply, bridge-secured supply, mainnet supply tracking
 - 💧 **Liquidity Monitoring**: DEX liquidity across Curve, Balancer, Uniswap, and Sushiswap
-- 🏦 **Lending Market Analysis**: Collateral usage in Aave, Morpho, Euler, and Fluid
+- 🏦 **Lending Market Analysis**: Collateral usage in Aave, Morpho, Euler, and Fluid (including Pendle PT markets)
 - 🛡️ **Safety Buffer Assessment**: Insurance funds, collateralization ratios, and safety factors
+- 🎯 **Risk Scoring**: Automated Factor of Safety calculation and Theoretical Supply Limit estimation
+- 👨‍💼 **Operator Mode**: Manual data entry interface for bridge supply and collateralization ratio
 - 📈 **Real-time Data**: Live metrics from multiple blockchain and DeFi data sources
+- 📥 **CSV Export**: Export complete metrics or detailed breakdowns for offline analysis
 - 📱 **Responsive Design**: Optimized for desktop and mobile viewing
 
 ## 📁 Project Structure
 
 ```
-stablecoin-exposure-dashboard/
+inverse-stablecoin-exposure/
 ├── src/
 │   ├── config/
-│   │   └── stablecoins.js        # 🔧 MAIN STABLECOIN CONFIGURATION
+│   │   ├── stablecoins.js        # 🔧 MAIN STABLECOIN CONFIGURATION
+│   │   └── manualDefaults.js     # Manual data entry defaults
 │   ├── components/
 │   │   ├── StablecoinDashboard.jsx # 🎛️ Main dashboard component
+│   │   ├── OperatorDataEntry.jsx # Manual data entry modal
+│   │   ├── DataSourceBadge.jsx   # Data source indicators
 │   │   ├── Header.jsx            # Navigation header with Inverse Finance branding
 │   │   └── Footer.jsx            # Footer component
 │   ├── hooks/                    # Data fetching hooks
-│   │   ├── useStablecoinMetrics.js # Stablecoin-specific data hooks
+│   │   ├── useStablecoinMetrics.js # Complete stablecoin metrics
 │   │   ├── useCoinGecko.js       # Market data integration
 │   │   ├── useUniswap.js         # DEX liquidity data
 │   │   ├── useCurve.js           # Curve pool data
 │   │   ├── useBalancer.js        # Balancer pool data
 │   │   ├── useSushiSwap.js       # SushiSwap pool data
+│   │   ├── useLendingMetrics.js  # Lending protocol data
 │   │   └── useEthereum.js        # On-chain supply data
+│   ├── utils/
+│   │   ├── stablecoinMetricHelpers.js # Metric calculation utilities
+│   │   └── stablecoinCsvExport.js     # CSV export functionality
 │   ├── services/
 │   │   └── cache-client.js       # Caching and API management
 │   └── assets/                   # Static assets
@@ -62,7 +72,24 @@ export const stablecoins = [
       dai: "0x6b175474e89094c44da98b954eedeac495271d0f",
       usds: "0xdC035D45d973E3EC169d2276DDab16f1e407384F"
     },
-    category: "maker_ecosystem"       // Categorization
+    stakedCoingeckoIds: ["susds"],    // Staked version IDs
+    stakedContractAddresses: {        // Staked token contracts
+      susds: "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd"
+    },
+    insuranceFund: {                  // Insurance fund configuration
+      monitoredAddresses: [],
+      tokensToMonitor: [],
+      lpTokensToMonitor: []
+    },
+    manualDataSources: {              // Manual data entry sources
+      bridgeSupply: [
+        { url: "https://...", description: "Bridge data" }
+      ],
+      collateralizationRatio: [
+        { url: "https://...", description: "CR data" }
+      ]
+    },
+    category: "sky"                   // Categorization
   },
   // Add more stablecoins here...
 ];
@@ -74,8 +101,11 @@ The main dashboard component that displays the stablecoin metrics table:
 
 - **Metrics Display**: Shows supply, liquidity, lending, and safety metrics
 - **Real-time Updates**: Fetches live data from multiple sources
+- **Manual Data Entry**: Operator interface for bridge supply and collateralization ratio
+- **Sequential Loading**: Stablecoins load one at a time with progress indicator
 - **Responsive Design**: Optimized table layout for all screen sizes
 - **Data Visualization**: Color-coded sections for different metric categories
+- **CSV Export**: Export metrics to CSV for further analysis
 
 ## 🚀 Quick Start
 
@@ -88,8 +118,8 @@ The main dashboard component that displays the stablecoin metrics table:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/open-dashboard.git
-cd open-dashboard
+git clone https://github.com/naouflex/inverse-stablecoin-exposure.git
+cd inverse-stablecoin-exposure
 
 # Create environment file
 cp .env.example .env
@@ -119,21 +149,25 @@ The dashboard uses a **metrics-as-rows, stablecoins-as-columns** layout for easy
 
 1. **Supply Metrics** (Blue)
    - Total Supply
-   - Supply secured by bridge
+   - Supply secured by bridge (manual entry)
    - Mainnet Supply
-   - Excl. lending markets, other networks
+   - Excl. lending markets, other networks (calculated)
 
 2. **Mainnet Liquidity** (Green)
    - Curve, Balancer, Uniswap, Sushiswap
-   - Total mainnet liquidity
+   - Total mainnet liquidity (sum)
 
 3. **Competitor Markets** (Purple)
    - Aave, Morpho, Euler, Fluid Collateral
-   - Total lending markets
+   - Total lending markets (sum with Pendle PT breakdown)
 
 4. **Safety Buffer** (Red)
-   - Insurance Layer/Fund, CR, Staked Supply
-   - % Supply on Mainnet, Factor of Safety
+   - Insurance Layer/Fund
+   - Collateralization Ratio (manual entry)
+   - Staked Supply
+   - % Supply on Mainnet (calculated)
+   - Factor of Safety (calculated composite risk score)
+   - Theoretical Supply Limit (calculated risk-adjusted limit)
 
 ## 📊 Data Sources
 
@@ -156,57 +190,83 @@ The dashboard integrates with multiple APIs to provide comprehensive stablecoin 
 
 ## 🎨 Customization Examples
 
-### Adding a New Metric Column
+### Adding a New Stablecoin
 
-1. **Extend the protocol data structure** in `protocols.js`:
+1. **Add the stablecoin configuration** in `stablecoins.js`:
 ```javascript
 {
-  // ... existing fields
-  customMetric: 1000000,  // Your new field
+  name: "Your Stablecoin",
+  symbol: "YSTABLE",
+  coingeckoIds: ["your-stablecoin-id"],
+  contractAddresses: {
+    token: "0x..."
+  },
+  stakedCoingeckoIds: ["staked-version"],
+  stakedContractAddresses: {
+    staked: "0x..."
+  },
+  insuranceFund: {
+    monitoredAddresses: [],
+    tokensToMonitor: [],
+    lpTokensToMonitor: []
+  },
+  manualDataSources: {
+    bridgeSupply: [
+      {
+        url: "https://...",
+        description: "Data source"
+      }
+    ],
+    collateralizationRatio: [
+      {
+        url: "https://...",
+        description: "CR data source"
+      }
+    ]
+  },
+  category: "your_category"
 }
 ```
 
-2. **Add the column header** in `DeFiDashboard.jsx`:
+2. The stablecoin will automatically appear as a new column in the dashboard.
+
+### Adding a New Metric Row
+
+1. **Add the metric case** in `StablecoinDashboard.jsx` `MetricRow` component:
+```javascript
+case 'yourNewMetric':
+  return metrics.yourNewMetric?.isLoading ? <Skeleton height="20px" /> : 
+    <Text fontSize="sm">{formatStablecoinAmount(metrics.yourNewMetric?.data || 0)}</Text>;
+```
+
+2. **Add the MetricRow** to the appropriate section in the dashboard:
 ```jsx
-<SortableHeader 
-  column="customMetric" 
-  currentSort={sortConfig} 
-  onSort={handleSort} 
-  dataSource="Custom"
->
-  Your Metric
-</SortableHeader>
+<MetricRow 
+  metricKey="yourNewMetric" 
+  metricLabel="Your New Metric" 
+  sectionColor="blue.500"
+  allStablecoinMetrics={allStablecoinMetrics}
+  loadedStablecoins={loadedStablecoins}
+  openOperatorModal={openOperatorModal}
+/>
 ```
 
-### Modifying Color Thresholds
+### Customizing Manual Data Entry
 
-Update the `getColorForMetric` function in `DeFiDashboard.jsx`:
-
-```javascript
-case 'yourMetric':
-  return getColorScale(value, { 
-    low: 10,      // Red threshold
-    medium: 50,   // Yellow threshold  
-    high: 100     // Green threshold
-  }, false);      // false = higher is better
-```
-
-### Adding Protocol-Specific Logic
-
-Handle special cases for specific protocols:
+Update manual data defaults in `manualDefaults.js`:
 
 ```javascript
-// Special handling for your protocol
-if (protocol.ticker === 'MYTOKEN') {
-  // Custom calculation logic
-  const customValue = (marketCap * specialMultiplier) / totalSupply;
-  // Use in your metrics
-}
+export const manualDataDefaults = {
+  YSTABLE: {
+    bridgeSupply: 1000000,
+    collateralizationRatio: 1.05
+  }
+};
 ```
 
 ## 🐳 Docker Deployment
 
-The Open Dashboard provides separate Docker configurations for development and production environments.
+The Stablecoin Exposure Dashboard provides separate Docker configurations for development and production environments.
 
 ### 🛠️ Development Environment
 
@@ -323,7 +383,7 @@ docker-compose down
 
 ```mermaid
 graph LR
-    A[protocols.js] --> B[DeFiDashboard.jsx]
+    A[stablecoins.js] --> B[StablecoinDashboard.jsx]
     B --> C[Custom Hooks]
     C --> D[API Services]
     D --> E[Cache Layer]
@@ -331,9 +391,9 @@ graph LR
     F --> G[Dashboard Display]
 ```
 
-1. **Configuration** loaded from `protocols.js`
-2. **Dashboard component** processes protocol list
-3. **Custom hooks** fetch data for each protocol
+1. **Configuration** loaded from `stablecoins.js`
+2. **Dashboard component** processes stablecoin list
+3. **Custom hooks** fetch data for each stablecoin
 4. **Cache service** optimizes API calls
 5. **External APIs** provide real-time data
 6. **UI components** display formatted results
@@ -345,11 +405,11 @@ graph LR
 Add your own data sources by creating new hooks:
 
 ```javascript
-// src/hooks/useCustomAPI.js
-export function useCustomAPI(protocolAddress, options = {}) {
+// src/hooks/useCustomStablecoinMetric.js
+export function useCustomStablecoinMetric(stablecoin, options = {}) {
   return useQuery({
-    queryKey: ['customAPI', protocolAddress],
-    queryFn: () => fetchCustomData(protocolAddress),
+    queryKey: ['customMetric', stablecoin.symbol],
+    queryFn: () => fetchCustomStablecoinData(stablecoin),
     ...options
   });
 }
@@ -374,11 +434,11 @@ const customTheme = {
 
 ## 📈 Performance Optimization
 
-- **Staggered Loading**: Protocols load incrementally to prevent API rate limits
-- **Caching Layer**: Reduces redundant API calls with intelligent caching
-- **Lazy Loading**: Components load data only when needed
-- **Memoization**: Expensive calculations are cached
-- **Virtual Scrolling**: Handles large protocol lists efficiently
+- **Sequential Loading**: Stablecoins load one by one to prevent API rate limits and ensure stable data fetching
+- **Caching Layer**: Reduces redundant API calls with intelligent caching via Redis
+- **Lazy Loading**: Metrics load only when their stablecoin column is enabled
+- **Memoization**: Expensive calculations (Factor of Safety, Theoretical Supply Limit) are cached
+- **Efficient Rendering**: Skeleton loaders prevent layout shifts during data fetching
 
 ## 🤝 Contributing
 
@@ -391,17 +451,19 @@ We welcome contributions! This project thrives on community involvement:
 5. **Open** a Pull Request
 
 ### Contribution Ideas
-- 📊 **Additional metrics** (governance participation, yield farming)
-- 🎨 **UI improvements** (charts, graphs, mobile optimization)
-- 🔌 **API integrations** (new data sources, real-time price feeds)
-- 🧪 **Testing** (unit tests, integration tests)
+- 📊 **Additional metrics** (peg stability tracking, redemption mechanisms, yield rates)
+- 🏦 **New stablecoins** (add support for emerging stablecoin protocols)
+- 🎨 **UI improvements** (time-series charts, risk score visualizations, mobile optimization)
+- 🔌 **API integrations** (additional lending protocols, L2 bridge data, real-time monitoring)
+- 🧪 **Testing** (unit tests, integration tests, data validation)
+- 📝 **Documentation** (operator guides, metric calculation explanations)
 
 ## 🆘 Support & Community
 
 - **Issues**: [GitHub Issues](https://github.com/naouflex/inverse-stablecoin-exposure/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/naouflex/inverse-stablecoin-exposure/discussions)
 - **Documentation**: This README and inline code comments
-- **Examples**: Check the `examples/` directory for common customizations
+- **Configuration**: See `src/config/stablecoins.js` and `src/config/manualDefaults.js` for examples
 
 
 ---
