@@ -389,7 +389,7 @@ app.get('/api/admin/redis-info', async (req, res) => {
 });
 
 // Admin endpoint to flush Redis cache
-app.post('/api/admin/flush-cache', async (req, res) => {
+app.post('/api/admin/flush-cache', requireOperator, async (req, res) => {
   try {
     await redis.flushAll();
     logger.info('Redis cache flushed successfully');
@@ -409,7 +409,7 @@ app.post('/api/admin/flush-cache', async (req, res) => {
 });
 
 // Admin endpoint to flush cache via GET (easier to use in browser)
-app.get('/api/admin/flush-cache', async (req, res) => {
+app.get('/api/admin/flush-cache', requireOperator, async (req, res) => {
   try {
     await redis.flushAll();
     logger.info('Redis cache flushed successfully via GET');
